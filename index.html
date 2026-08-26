@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProjectX Training Tracker</title>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ProjectX">
+<meta name="theme-color" content="#1a1714">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.3/tesseract.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f3ef;--surface:#fff;--card:#fff;--border:#e0dbd3;
+  --text:#1a1714;--muted:#8a8178;--muted2:#b8b0a6;
+  --hyrox:#c94b14;--hyrox-bg:rgba(201,75,20,.08);
+  --run:#1a5fb5;--run-bg:rgba(26,95,181,.08);
+  --rest:#b8b2aa;--rest-bg:rgba(184,178,170,.15);
+  --green:#1a8a5c;--green-bg:rgba(26,138,92,.1);
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#19160f;--surface:#221d14;--card:#221d14;--border:#332e22;
+  --text:#e8e2d8;--muted:#7a7060;--muted2:#4a4438;
+  --hyrox-bg:rgba(201,75,20,.15);--run-bg:rgba(26,95,181,.15);--rest-bg:rgba(184,178,170,.08);--green-bg:rgba(26,138,92,.15);
+}}
+:root[data-theme="dark"]{
+  --bg:#19160f;--surface:#221d14;--card:#221d14;--border:#332e22;
+  --text:#e8e2d8;--muted:#7a7060;--muted2:#4a4438;
+  --hyrox-bg:rgba(201,75,20,.15);--run-bg:rgba(26,95,181,.15);--rest-bg:rgba(184,178,170,.08);--green-bg:rgba(26,138,92,.15);
+}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+
+/* TOPBAR */
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.brand{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.brand em{font-style:normal;color:var(--hyrox)}
+.countdowns{display:flex;gap:32px}
+.cdblock{text-align:right}
+.cdlabel{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:1px}
+.cdval{font-size:22px;font-weight:700;line-height:1}
+.cdval.hyrox{color:var(--hyrox)}.cdval.half{color:var(--run)}
+.theme-btn{background:none;border:1px solid var(--border);border-radius:50%;width:32px;height:32px;cursor:pointer;color:var(--muted);font-size:15px;display:flex;align-items:center;justify-content:center;margin-left:20px;transition:border-color .2s,color .2s}
+.theme-btn:hover{border-color:var(--text);color:var(--text)}
+.sync-bar{background:var(--bg);border-bottom:1px solid var(--border);padding:6px 32px;display:flex;align-items:center;gap:10px}
+.sync-label{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+.sync-btn{padding:5px 12px;background:none;border:1px solid var(--border);border-radius:2px;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:5px}
+.sync-btn:hover{border-color:var(--text);color:var(--text)}
+.sync-btn.export{border-color:var(--run);color:var(--run)}
+.sync-btn.export:hover{background:var(--run-bg)}
+.sync-btn.import{border-color:var(--hyrox);color:var(--hyrox)}
+.sync-btn.import:hover{background:var(--hyrox-bg)}
+.sync-toast{font-size:11px;color:var(--green);font-weight:600;display:none}
+.sync-toast.show{display:block}
+
+/* PHASE NAV */
+.phase-nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;display:flex;align-items:stretch}
+.phase-tab{padding:10px 16px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border:none;background:none;border-bottom:2px solid transparent;cursor:pointer;transition:color .2s,border-color .2s;font-family:'DM Sans',sans-serif}
+.phase-tab:hover{color:var(--text)}
+.phase-tab.p1.active{color:var(--run);border-bottom-color:var(--run)}
+.phase-tab.p2.active{color:var(--hyrox);border-bottom-color:var(--hyrox)}
+.phase-tab.p3.active{color:var(--green);border-bottom-color:var(--green)}
+.phase-tab.p4.active{color:var(--text);border-bottom-color:var(--text)}
+
+/* MAIN */
+.main{padding:32px 32px;max-width:1320px;margin:0 auto}
+.prog-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:18px}
+.prog-dot{width:10px;height:10px;border-radius:50%;background:var(--border);cursor:pointer;transition:transform .15s,background .15s;flex-shrink:0}
+.prog-dot:hover{transform:scale(1.3)}
+.prog-dot.done.p1{background:var(--run)}.prog-dot.done.p2{background:var(--hyrox)}.prog-dot.done.p3{background:var(--green)}.prog-dot.done.p4{background:var(--muted)}
+.prog-dot.current{background:var(--text);box-shadow:0 0 0 2px var(--bg),0 0 0 3px var(--text)}
+
+/* WEEK HEADER */
+.week-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+.phase-eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.week-title{font-size:34px;font-weight:700;line-height:1}
+.week-dates-sub{font-size:13px;color:var(--muted);margin-top:4px}
+.week-nav{display:flex;align-items:center;gap:10px}
+.nav-btn{background:none;border:1px solid var(--border);border-radius:2px;width:34px;height:34px;cursor:pointer;color:var(--muted);font-size:16px;display:flex;align-items:center;justify-content:center;transition:all .15s;font-family:'DM Sans',sans-serif}
+.nav-btn:hover:not(:disabled){border-color:var(--text);color:var(--text)}
+.nav-btn:disabled{opacity:.3;cursor:not-allowed}
+.nav-wlabel{font-size:13px;color:var(--muted);min-width:52px;text-align:center}
+
+/* SESSION GRID */
+.session-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+@media(max-width:1000px){.session-grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:600px){.session-grid{grid-template-columns:repeat(2,1fr)}}
+
+.scard{background:var(--card);border:1px solid var(--border);border-left-width:3px;border-radius:3px;padding:16px 14px;display:flex;flex-direction:column;position:relative;cursor:pointer;transition:box-shadow .15s,transform .1s}
+.scard:hover{box-shadow:0 2px 12px rgba(0,0,0,.08);transform:translateY(-1px)}
+.scard.run{border-left-color:var(--run)}.scard.hyrox{border-left-color:var(--hyrox)}.scard.rest{border-left-color:var(--rest)}
+.scard-day{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.scard-typebadge{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:2px;margin-bottom:8px}
+.scard.run .scard-typebadge{background:var(--run-bg);color:var(--run)}
+.scard.hyrox .scard-typebadge{background:var(--hyrox-bg);color:var(--hyrox)}
+.scard.rest .scard-typebadge{background:var(--rest-bg);color:var(--muted)}
+.scard-name{font-size:16px;font-weight:700;line-height:1.2;color:var(--text);margin-bottom:7px}
+.scard.rest .scard-name{color:var(--muted)}
+.scard-detail{font-size:12px;color:var(--muted);line-height:1.6;flex:1}
+.scard-km{margin-top:11px;padding-top:9px;border-top:1px solid var(--border);font-size:20px;font-weight:700;color:var(--text);line-height:1}
+.scard-km span{font-size:12px;font-weight:400;color:var(--muted)}
+.scard-actions{display:flex;gap:6px;margin-top:11px}
+.scard-detail-btn{flex:1;padding:6px;background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-size:11px;font-family:'DM Sans',sans-serif;font-weight:500;cursor:pointer;text-align:center;transition:all .15s}
+.scard-detail-btn:hover{border-color:var(--text);color:var(--text)}
+.scard-log-btn{flex:1;padding:6px;background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-size:11px;font-family:'DM Sans',sans-serif;font-weight:500;cursor:pointer;text-align:center;transition:all .15s}
+.scard-log-btn:hover{border-color:var(--run);color:var(--run)}
+.scard.hyrox .scard-log-btn:hover{border-color:var(--hyrox);color:var(--hyrox)}
+.scard-log-btn.logged-btn{border-color:var(--green);color:var(--green)}
+
+/* STATS */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-radius:3px;overflow:hidden;background:var(--card);margin-top:24px}
+.stat-box{padding:16px 20px;border-right:1px solid var(--border)}
+.stat-box:last-child{border-right:none}
+.stat-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.stat-val{font-size:26px;font-weight:700;color:var(--text);line-height:1}
+.stat-val span{font-size:12px;font-weight:400;color:var(--muted)}
+
+/* LOGGED SESSIONS */
+.log-section{margin-top:32px;border-top:1px solid var(--border);padding-top:24px}
+.log-section-title{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px}
+.log-entry{display:flex;align-items:flex-start;gap:16px;padding:12px 0;border-bottom:1px solid var(--border)}
+.log-entry:last-child{border-bottom:none}
+.log-entry-day{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);min-width:70px;margin-top:2px}
+.log-entry-name{font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px}
+.log-entry-meta{font-size:12px;color:var(--muted);line-height:1.6}
+.log-entry-rpe{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:2px;margin-top:4px}
+.rpe-low{background:var(--run-bg);color:var(--run)}.rpe-mid{background:var(--hyrox-bg);color:var(--hyrox)}.rpe-high{background:rgba(180,30,30,.1);color:#c0392b}
+.empty-log{font-size:13px;color:var(--muted);font-style:italic}
+.log-img-thumb{width:60px;height:60px;object-fit:cover;border-radius:3px;border:1px solid var(--border);margin-top:4px;cursor:pointer}
+
+/* ===== DETAIL MODAL ===== */
+.detail-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
+.detail-backdrop.open{display:flex}
+.detail-modal{background:var(--surface);border:1px solid var(--border);border-radius:4px;width:min(760px,96vw);position:relative}
+.detail-header{padding:24px 28px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.detail-badge{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:2px;margin-bottom:8px}
+.run .detail-badge{background:var(--run-bg);color:var(--run)}.hyrox .detail-badge{background:var(--hyrox-bg);color:var(--hyrox)}.rest .detail-badge{background:var(--rest-bg);color:var(--muted)}
+.detail-title{font-size:26px;font-weight:700;line-height:1.15;margin-bottom:4px}
+.detail-sub{font-size:13px;color:var(--muted)}
+.detail-close{background:none;border:1px solid var(--border);border-radius:50%;width:32px;height:32px;cursor:pointer;color:var(--muted);font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
+.detail-close:hover{border-color:var(--text);color:var(--text)}
+.detail-body{padding:24px 28px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:600px){.detail-body{grid-template-columns:1fr}}
+.detail-section{margin-bottom:4px}
+.detail-section-title{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.detail-block{background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:14px 16px}
+.detail-row{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px}
+.detail-row:last-child{border-bottom:none}
+.detail-row-label{color:var(--muted);min-width:90px;font-size:12px;font-weight:500;flex-shrink:0;padding-top:1px}
+.detail-row-val{color:var(--text);line-height:1.5}
+.station-item{padding:10px 0;border-bottom:1px solid var(--border)}
+.station-item:last-child{border-bottom:none}
+.station-name{font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px}
+.station-detail{font-size:12px;color:var(--muted);line-height:1.5}
+.station-sets{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.set-chip{font-size:11px;font-weight:600;padding:3px 9px;border-radius:2px;background:var(--hyrox-bg);color:var(--hyrox)}
+.tip-item{display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:13px;color:var(--text);line-height:1.5}
+.tip-item::before{content:'→';color:var(--muted);flex-shrink:0;margin-top:0px}
+.detail-footer{padding:16px 28px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+.btn-log-from-detail{padding:9px 20px;background:var(--text);border:none;border-radius:2px;color:var(--bg);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn-log-from-detail:hover{opacity:.85}
+
+/* ===== LOG MODAL ===== */
+.log-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center;padding:20px}
+.log-backdrop.open{display:flex}
+.log-modal{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:26px;width:min(500px,96vw);max-height:90vh;overflow-y:auto}
+.log-title{font-size:18px;font-weight:700;margin-bottom:3px}
+.log-sub{font-size:13px;color:var(--muted);margin-bottom:20px}
+
+/* IMAGE IMPORT ZONE */
+.img-import-zone{border:2px dashed var(--border);border-radius:4px;padding:18px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:18px;position:relative}
+.img-import-zone:hover,.img-import-zone.drag{border-color:var(--run);background:var(--run-bg)}
+.img-import-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.img-zone-icon{font-size:24px;margin-bottom:6px}
+.img-zone-label{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.img-zone-sub{font-size:11px;color:var(--muted)}
+
+/* OCR STATES */
+.ocr-processing{display:none;align-items:center;gap:10px;padding:10px 14px;background:var(--run-bg);border:1px solid rgba(26,95,181,.2);border-radius:3px;margin-bottom:14px;font-size:13px;color:var(--run)}
+.ocr-processing.show{display:flex}
+.ocr-spinner{width:16px;height:16px;border:2px solid rgba(26,95,181,.3);border-top-color:var(--run);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ocr-result-bar{display:none;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--green-bg);border:1px solid rgba(26,138,92,.25);border-radius:3px;margin-bottom:14px;font-size:13px;color:var(--green)}
+.ocr-result-bar.show{display:flex}
+.ocr-preview-wrap{margin-bottom:14px;position:relative;display:none}
+.ocr-preview-wrap.show{display:block}
+.ocr-preview-img{width:100%;max-height:160px;object-fit:contain;border-radius:3px;border:1px solid var(--border);background:var(--bg)}
+.ocr-clear{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.5);border:none;border-radius:50%;width:22px;height:22px;color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+
+/* FORM */
+.field-row{margin-bottom:14px}
+.field-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.auto-filled{color:var(--green);font-size:10px;font-weight:700;background:var(--green-bg);padding:1px 6px;border-radius:2px}
+.field-input,.field-textarea,.field-select{width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:2px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color .2s}
+.field-input:focus,.field-textarea:focus{outline:none;border-color:var(--text)}
+.field-input.auto-val{border-color:var(--green);background:var(--green-bg)}
+.field-textarea{resize:vertical;min-height:64px}
+.rpe-row{display:flex;gap:5px;flex-wrap:wrap}
+.rpe-btn{flex:1;min-width:28px;padding:7px 4px;background:var(--bg);border:1px solid var(--border);border-radius:2px;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;text-align:center;transition:all .15s;font-family:'DM Sans',sans-serif}
+.rpe-btn.sel{background:var(--text);border-color:var(--text);color:var(--bg)}
+.modal-actions{display:flex;gap:8px;margin-top:18px}
+.btn-save{flex:1;padding:10px;background:var(--text);border:none;border-radius:2px;color:var(--bg);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn-save:hover{opacity:.85}
+.btn-cancel{padding:10px 16px;background:none;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;cursor:pointer;transition:all .15s}
+.btn-cancel:hover{border-color:var(--text);color:var(--text)}
+
+/* IMAGE LIGHTBOX */
+.lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;align-items:center;justify-content:center;cursor:zoom-out}
+.lightbox.open{display:flex}
+.lightbox img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">PROJECT<em>X</em> — Training Log</div>
+  <div style="display:flex;align-items:center;gap:24px">
+    <div class="countdowns">
+      <div class="cdblock">
+        <span class="cdlabel">Half Marathon · Nov 28</span>
+        <div class="cdval half" id="cd-hm">— days</div>
+      </div>
+      <div class="cdblock">
+        <span class="cdlabel">Hyrox Solo · Feb 12</span>
+        <div class="cdval hyrox" id="cd-hyrox">— days</div>
+      </div>
+    </div>
+    <button class="theme-btn" id="theme-toggle" title="Toggle theme">☀</button>
+  </div>
+</div>
+
+<div class="sync-bar">
+  <span class="sync-label">Data Sync</span>
+  <button class="sync-btn export" onclick="exportData()">⬇ Export JSON</button>
+  <label class="sync-btn import" style="cursor:pointer">
+    ⬆ Import JSON
+    <input type="file" accept=".json" style="display:none" onchange="importData(this)">
+  </label>
+  <span class="sync-toast" id="sync-toast"></span>
+</div>
+
+<div class="phase-nav">
+  <button class="phase-tab p1" onclick="jumpPhase(1)">Phase 1 · Base</button>
+  <button class="phase-tab p2" onclick="jumpPhase(2)">Phase 2 · Compromised</button>
+  <button class="phase-tab p3" onclick="jumpPhase(3)">Phase 3 · Race Sim</button>
+  <button class="phase-tab p4" onclick="jumpPhase(4)">Phase 4 · Taper</button>
+</div>
+
+<div class="main">
+  <div class="prog-row" id="prog-row"></div>
+  <div class="week-header">
+    <div>
+      <div class="phase-eyebrow" id="phase-eyebrow"></div>
+      <div class="week-title" id="week-title"></div>
+      <div class="week-dates-sub" id="week-dates-sub"></div>
+    </div>
+    <div class="week-nav">
+      <button class="nav-btn" id="btn-prev" onclick="changeWeek(-1)">←</button>
+      <span class="nav-wlabel" id="nav-wlabel"></span>
+      <button class="nav-btn" id="btn-next" onclick="changeWeek(1)">→</button>
+    </div>
+  </div>
+  <div class="session-grid" id="session-grid"></div>
+  <div class="stats-row">
+    <div class="stat-box"><div class="stat-label">Weekly Volume</div><div class="stat-val" id="st-km">— <span>km</span></div></div>
+    <div class="stat-box"><div class="stat-label">Run Sessions</div><div class="stat-val" id="st-runs">— <span>sessions</span></div></div>
+    <div class="stat-box"><div class="stat-label">Hyrox Sessions</div><div class="stat-val" id="st-hyrox">— <span>sessions</span></div></div>
+    <div class="stat-box"><div class="stat-label">Logged This Week</div><div class="stat-val" id="st-logged">0 <span>/ —</span></div></div>
+  </div>
+  <div class="log-section">
+    <div class="log-section-title">Logged Sessions</div>
+    <div id="log-list"></div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="detail-backdrop" id="detail-modal" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-modal" id="detail-inner">
+    <div class="detail-header">
+      <div>
+        <div class="detail-badge" id="d-badge"></div>
+        <div class="detail-title" id="d-title"></div>
+        <div class="detail-sub" id="d-sub"></div>
+      </div>
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body" id="d-body"></div>
+    <div class="detail-footer">
+      <button class="btn-log-from-detail" id="d-log-btn" onclick="logFromDetail()">Log This Session →</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOG MODAL -->
+<div class="log-backdrop" id="log-modal" onclick="if(event.target===this)closeLog()">
+  <div class="log-modal">
+    <div class="log-title" id="log-title"></div>
+    <div class="log-sub" id="log-sub"></div>
+
+    <!-- IMAGE IMPORT -->
+    <div class="img-import-zone" id="img-zone" ondragover="e=>{e.preventDefault();this.classList.add('drag')}" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+      <input type="file" accept="image/*" onchange="handleImgFile(this.files[0])" id="img-input">
+      <div class="img-zone-icon">📷</div>
+      <div class="img-zone-label">Import from Watch Screenshot</div>
+      <div class="img-zone-sub">คลิกหรือลากไฟล์ภาพจาก Garmin · Strava · Polar · Coros</div>
+    </div>
+
+    <div class="ocr-preview-wrap" id="ocr-preview-wrap">
+      <img class="ocr-preview-img" id="ocr-preview-img" src="" alt="">
+      <button class="ocr-clear" onclick="clearImg()">✕</button>
+    </div>
+
+    <div class="ocr-processing" id="ocr-processing">
+      <div class="ocr-spinner"></div>
+      <span id="ocr-status-text">กำลังอ่านข้อมูลจากภาพ...</span>
+    </div>
+
+    <div class="ocr-result-bar" id="ocr-result-bar">
+      <span id="ocr-found-text"></span>
+      <button onclick="document.getElementById('ocr-result-bar').classList.remove('show')" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:16px">✓</button>
+    </div>
+
+    <div class="field-row">
+      <label class="field-label">Actual Distance (km) <span class="auto-filled" id="af-km" style="display:none">Auto</span></label>
+      <input class="field-input" id="f-km" type="number" step="0.1" placeholder="เช่น 6.2">
+    </div>
+    <div class="field-row">
+      <label class="field-label">Actual Pace (min/km) <span class="auto-filled" id="af-pace" style="display:none">Auto</span></label>
+      <input class="field-input" id="f-pace" type="text" placeholder="เช่น 6:15">
+    </div>
+    <div class="field-row">
+      <label class="field-label">Heart Rate Avg (bpm) <span class="auto-filled" id="af-hr" style="display:none">Auto</span></label>
+      <input class="field-input" id="f-hr" type="number" placeholder="เช่น 142">
+    </div>
+    <div class="field-row">
+      <label class="field-label">Duration <span class="auto-filled" id="af-dur" style="display:none">Auto</span></label>
+      <input class="field-input" id="f-dur" type="text" placeholder="เช่น 38:22">
+    </div>
+    <div class="field-row">
+      <label class="field-label">Calories <span class="auto-filled" id="af-cal" style="display:none">Auto</span></label>
+      <input class="field-input" id="f-cal" type="number" placeholder="เช่น 380">
+    </div>
+    <div class="field-row">
+      <label class="field-label">RPE (1–10)</label>
+      <div class="rpe-row" id="rpe-row">
+        <button class="rpe-btn" onclick="selRpe(this,1)">1</button><button class="rpe-btn" onclick="selRpe(this,2)">2</button>
+        <button class="rpe-btn" onclick="selRpe(this,3)">3</button><button class="rpe-btn" onclick="selRpe(this,4)">4</button>
+        <button class="rpe-btn" onclick="selRpe(this,5)">5</button><button class="rpe-btn" onclick="selRpe(this,6)">6</button>
+        <button class="rpe-btn" onclick="selRpe(this,7)">7</button><button class="rpe-btn" onclick="selRpe(this,8)">8</button>
+        <button class="rpe-btn" onclick="selRpe(this,9)">9</button><button class="rpe-btn" onclick="selRpe(this,10)">10</button>
+      </div>
+    </div>
+    <div class="field-row">
+      <label class="field-label">Notes</label>
+      <textarea class="field-textarea" id="f-notes" placeholder="รู้สึกอย่างไร? มีอะไรผิดปกติ?"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-save" onclick="saveLog()">Save Session</button>
+      <button class="btn-cancel" onclick="closeLog()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('open')">
+  <img id="lb-img" src="" alt="">
+</div>
+
+<script>
+// ─── Session Data ─────────────────────────────────────────────────────────────
+const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const SHORT=['MON','TUE','WED','THU','FRI','SAT','SUN'];
+
+function p1(w,d){
+  const eMon=w<=2?6:(w<=6?8:(w==7?10:6));
+  const eThu=w<=4?8:(w==8?6:10);
+  const lr=[14,15,15,16,16,17,18,14][w-1];
+  const tKm=w<=4?6:8;
+  return [{type:'run',name:'Easy Run',detail:`Zone 2 · HR <145\nTarget ~6:30/km`,km:eMon},
+    {type:'run',name:'Tempo Run',detail:`Threshold · HR 158–168\nTarget ~5:15/km`,km:tKm},
+    {type:'hyrox',name:'Stations A',detail:`SkiErg · Sled Push\nSled Pull · Wall Ball\nTechnique focus`},
+    {type:'run',name:'Easy Run',detail:`Zone 2 · HR <145\nTarget ~6:30/km`,km:eThu},
+    {type:'hyrox',name:'Stations B',detail:`Row Erg · Farmers Carry\nSandbag Lunge · Burpee BJump\nTechnique focus`},
+    {type:'rest',name:'Recovery',detail:`Active rest\nStretch & mobility`},
+    {type:'run',name:'Long Run',detail:`Zone 2 · Conversational\nTarget ~6:45/km`,km:lr}][d];
+}
+function p2(w,d){
+  const eMon=w<=4?8:10,eThu=w<=4?6:8;
+  const lr=[16,18,18,20,20,22,22,16][w-1],tKm=w<=4?8:10;
+  const h=w<=4?`2 rounds · Station circuit\nBrick run 2km after`:`3 rounds · Station circuit\nBrick run 3km after`;
+  return [{type:'run',name:'Easy Run',detail:`Zone 2 · HR <145\nTarget ~6:20/km`,km:eMon},
+    {type:'run',name:'Tempo Run',detail:`Threshold · HR 158–168\nTarget ~5:10/km`,km:tKm},
+    {type:'hyrox',name:'Hyrox Brick A',detail:h},
+    {type:'run',name:'Easy Run',detail:`Zone 2 · HR <145\nTarget ~6:20/km`,km:eThu},
+    {type:'hyrox',name:'Hyrox Brick B',detail:h},
+    {type:'rest',name:'Recovery',detail:`Active rest\nFoam roll & stretch`},
+    {type:'run',name:'Long Run',detail:`Zone 2 · HR <150\nTarget ~6:30/km`,km:lr}][d];
+}
+function p3(w,d){
+  const eMon=w<=4?8:10,lr=[18,20,22,24,24,22,20,16][w-1],tKm=w<=4?10:12;
+  const sim=w<=4?`Full Hyrox simulation\n60% race intensity\nAll 8 stations`:`Full Hyrox simulation\n80–90% race intensity\nAll 8 stations`;
+  return [{type:'run',name:'Easy Run',detail:`Zone 2 · HR <145\nTarget ~6:15/km`,km:eMon},
+    {type:'run',name:'Tempo Run',detail:`Threshold → Race pace\nTarget ~5:00/km`,km:tKm},
+    {type:'hyrox',name:'Race Sim A',detail:sim},
+    {type:'run',name:'Easy Run',detail:`Zone 2 recovery · HR <140`,km:8},
+    {type:'hyrox',name:'Race Sim B',detail:sim},
+    {type:'rest',name:'Recovery',detail:`Full rest\nNutrition focus`},
+    {type:'run',name:'Long Run',detail:`Zone 2 → Zone 3\nLast 5km at HM pace`,km:lr}][d];
+}
+function p4(w,d){
+  const lr=w==1?12:8;
+  return [{type:'run',name:'Easy Run',detail:`Zone 2 · Keep loose\n~6:00/km`,km:6},
+    {type:'run',name:'Tempo Tune',detail:`2km WU · 4km @race pace\n2km CD`,km:8},
+    {type:'hyrox',name:'Light Drill',detail:`1 round each station\nLow effort · Movement patterns`},
+    {type:'run',name:'Easy Run',detail:`Zone 2 · 30–40 min\nFeel good`,km:5},
+    {type:'rest',name:'Recovery',detail:`Full rest or walk\nVisualize race day`},
+    {type:'rest',name:'Recovery',detail:`Complete rest\nPrep gear`},
+    {type:'run',name:'Long Run',detail:`Easy · HR <140\nEnjoy the run`,km:lr}][d];
+}
+function getPhase(w){return w<=8?1:w<=16?2:w<=24?3:4}
+function getSession(w,d){
+  const p=getPhase(w);
+  return p===1?p1(w,d):p===2?p2(w-8,d):p===3?p3(w-16,d):p4(w-24,d);
+}
+
+// ─── Detail Data ──────────────────────────────────────────────────────────────
+function getDetail(week, dayIdx) {
+  const s = getSession(week, dayIdx);
+  const p = getPhase(week);
+  const rel = p===1?week:p===2?week-8:p===3?week-16:week-24;
+
+  if(s.type==='rest') return {
+    goal:'พักฟื้นร่างกายและฟื้นฟูกล้ามเนื้อ',
+    structure:[
+      {phase:'Active Recovery',desc:'เดินเบาๆ 20–30 นาที หรือปั่นจักรยานเบา'},
+      {phase:'Mobility',desc:'Hip flexor stretch · Hamstring stretch · Calf stretch — ค้างท่าละ 60 วินาที'},
+      {phase:'Foam Roll',desc:'IT Band · Quads · Upper back — กดจุดที่ตึงค้างไว้ 30–45 วินาที'},
+    ],
+    targets:[],
+    tips:['อย่าข้ามวัน Rest — การฟื้นตัวคือส่วนหนึ่งของการซ้อม','ดูแลการนอน ≥ 7–8 ชม. คืนนี้']
+  };
+
+  if(s.name==='Easy Run') return {
+    goal:'สร้างฐานแอโรบิก · พัฒนา fat oxidation · ไม่สะสมความล้า',
+    structure:[
+      {phase:'Warm-up (5 min)',desc:'เดินเร็ว → จ็อกเบาๆ ค่อยๆ เพิ่มความเร็ว'},
+      {phase:`Main (${s.km} km)`,desc:`วิ่งที่ Zone 2 (HR < 145) ตลอด\nถ้า HR ขึ้น ให้ช้าลง — pace ไม่สำคัญ\nควรคุยกับคนข้างๆ ได้สบาย`},
+      {phase:'Cool-down (5 min)',desc:'ค่อยๆ ช้าลง → เดิน → ยืดกล้ามเนื้อขา 10 นาที'},
+    ],
+    targets:[
+      {label:'HR Target',val:'< 145 bpm ตลอด'},
+      {label:'Pace Guide',val:p===1?'~6:30/km (ไม่ยึดติด)':p===2?'~6:20/km':p===3?'~6:15/km':'~6:00/km'},
+      {label:'Distance',val:`${s.km} km`},
+      {label:'Cadence',val:'~170 spm'},
+    ],
+    tips:['หายใจทางจมูกเป็นหลัก ถ้าต้องเปิดปาก = เร็วเกินไป','อย่าดู pace — cover HR Monitor ถ้าจำเป็น','เอา Strava/Garmin ดูทีหลังเพื่อตรวจว่า HR ไม่เกิน']
+  };
+
+  if(s.name==='Tempo Run') return {
+    goal:'พัฒนา Lactate Threshold · เพิ่ม running economy',
+    structure:[
+      {phase:'Warm-up (1.5 km)',desc:'Easy jog ที่ Zone 1–2 เพื่อเตรียมกล้ามเนื้อ'},
+      {phase:`Main (${s.km-3} km)`,desc:`วิ่งที่ HR 158–168 (Threshold)\nรู้สึกหนักแต่ควบคุมได้ ไม่สามารถคุยเป็นประโยคได้\nพูดได้แค่สั้นๆ = ถูกต้อง`},
+      {phase:'Cool-down (1.5 km)',desc:'ค่อยๆ ช้าลงสู่ Zone 1 → เดิน → ยืด'},
+    ],
+    targets:[
+      {label:'HR Target',val:'158–168 bpm (ช่วง Main)'},
+      {label:'Pace Guide',val:p===1?'~5:15/km':p===2?'~5:10/km':p===3?'~5:00/km':'~4:55/km'},
+      {label:'Total',val:`${s.km} km`},
+      {label:'RPE ช่วง Main',val:'7–8 / 10'},
+    ],
+    tips:['เริ่ม conservative — อย่าออกแรงเต็มตั้งแต่ต้น','ถ้า HR เกิน 168 ให้ช้าลงนิด','Tempo run สำคัญมากสำหรับ Hyrox — Running leg คือแป้งเปรี้ยวของแข่ง']
+  };
+
+  if(s.name==='Long Run') return {
+    goal:'สร้าง endurance · ฝึกใช้ไขมันเป็นเชื้อเพลิง · ฝึกกินระหว่างวิ่ง',
+    structure:[
+      {phase:'Warm-up (10 min)',desc:'เดิน → จ็อกเบาๆ ค่อยๆ warming up'},
+      {phase:`Main (${s.km} km)`,desc:`Zone 2 ตลอด (HR < 148)\n${rel>=5?'5km สุดท้าย: เร็วขึ้นเล็กน้อย (Zone 3)':''}\nกิน Gel ทุก 45 นาที ถ้า km > 14`},
+      {phase:'Cool-down (10 min)',desc:'ค่อยๆ ช้าลง → เดิน 10 นาที\nยืดกล้ามเนื้อ 15 นาทีทันทีหลังวิ่ง'},
+    ],
+    targets:[
+      {label:'HR Target',val:'< 148 bpm'},
+      {label:'Pace Guide',val:p===1?'~6:45/km':p===2?'~6:30/km':p===3?'~6:15/km':'~6:30/km'},
+      {label:'Distance',val:`${s.km} km`},
+      {label:'Hydration',val:'ดื่มน้ำทุก 20 นาที'},
+      {label:'Nutrition',val:s.km>14?'Gel 1 ซองทุก 45 นาที':'ไม่จำเป็น (< 14 km)'},
+    ],
+    tips:['Long run คือ king — อย่าพลาดมันเพราะเหนื่อยสะสม','ถ้า HR ขึ้นตอนท้าย อนุญาต (cardiac drift) แต่ pace ควรคงที่','วันนี้ดูแลอาหาร carb loading เล็กน้อยตอนเย็น']
+  };
+
+  // Hyrox Sessions
+  if(s.name.includes('Station') || s.name.includes('Hyrox') || s.name.includes('Race Sim')) {
+    const isA = dayIdx===2; // Wed = A, Fri = B
+    const sets = p===1?3:p===2?4:5;
+    const reps = `${sets}×`;
+    const intensity = p===1?'Technique':'p===2'?'60–70%':p===3?'80–90%':'50%';
+
+    if(isA) return {
+      goal:p===1?'เรียนรู้ท่าที่ถูกต้องของ 4 stations แรก':p===2?'Compromised running หลัง stations':'Race simulation — 4 stations แรก',
+      structure:[
+        {phase:'Warm-up (10 min)',desc:'Dynamic stretch: leg swing, hip circle, arm circle\nHigh knees + butt kicks 2×20m'},
+        {phase:`Main — ${sets} Rounds`,desc:p===1?`SkiErg 200m × ${sets}\nSled Push 10m × ${sets}\nSled Pull 10m × ${sets}\nWall Ball 10 reps × ${sets}`:
+          p===2?`Station Circuit A (2–3 rounds)\nBrick Run 2–3km ทันทีหลัง circuit\nHR ขึ้นได้ถึง 180+`:
+          `Full Race Sim A\nStart → SkiErg 1km → Sled Push 50m → Sled Pull 50m → Wall Ball 100 reps\nเวลา target: < 30 นาที`},
+        {phase:'Cool-down (10 min)',desc:'เดิน 5 นาที → stretch lat, shoulder, quads'},
+      ],
+      targets:[
+        {label:'Intensity',val:p===1?'Technique (50–60%)':p===2?'60–75%':'80–90% race effort'},
+        {label:'Rest',val:p===1?'90 วินาที ระหว่าง sets':p===2?'2 นาที ระหว่าง rounds':'ตาม race protocol'},
+        {label:'SkiErg',val:p===1?'200m × 3, focus pull mechanics':p===2?'400m × 2–3':'1km full'},
+        {label:'Sled Push',val:p===1?'10m × 3 · น้ำหนักเบา เน้นท่า':p===2?'25m × 3':'50m full'},
+        {label:'Wall Ball',val:`10 reps × ${sets} · 4kg (ผู้ชาย Open: 4kg)`},
+      ],
+      tips:[
+        'SkiErg: ดึงจาก core ไม่ใช่แขน — ก้มตัวไปด้านหน้า',
+        'Sled Push: body angle ต่ำ 45° กดส้นเท้า ไม่ใช่นิ้วเท้า',
+        'Sled Pull: มือสลับ hand-over-hand เร็วๆ ไหล่กดต่ำ',
+        'Wall Ball: squat ลึก ปล่อยลูกตอนยืนสุด explosive'
+      ]
+    };
+    else return {
+      goal:p===1?'เรียนรู้ท่าที่ถูกต้องของ 4 stations หลัง':p===2?'Compromised running หลัง stations':'Race simulation — 4 stations หลัง',
+      structure:[
+        {phase:'Warm-up (10 min)',desc:'Dynamic stretch + 5 min rowing เบาๆ\nShoulder mobility circles'},
+        {phase:`Main — ${sets} Rounds`,desc:p===1?`Row Erg 250m × ${sets}\nFarmers Carry 25m × ${sets}\nSandbag Lunge 10 reps/ข้าง × ${sets}\nBurpee Broad Jump 5 reps × ${sets}`:
+          p===2?`Station Circuit B (2–3 rounds)\nBrick Run 2–3km ทันทีหลัง circuit`:
+          `Full Race Sim B\nRow Erg 1km → Farmers Carry 200m → Sandbag Lunge 100m → BBJ 30 reps`},
+        {phase:'Cool-down (10 min)',desc:'เดิน 5 นาที → stretch lower back, hip flexor, forearms'},
+      ],
+      targets:[
+        {label:'Intensity',val:p===1?'Technique (50–60%)':p===2?'60–75%':'80–90%'},
+        {label:'Rest',val:p===1?'90 วินาที ระหว่าง sets':'2 นาที ระหว่าง rounds'},
+        {label:'Row Erg',val:p===1?'250m × 3 · เน้น leg drive':p===2?'500m × 2–3':'1km full'},
+        {label:'Farmers Carry',val:`25m × ${sets} · น้ำหนัก 24kg/ข้าง (Open)`},
+        {label:'Sandbag Lunge',val:`10/ข้าง × ${sets} · 10kg (Open Men)`},
+        {label:'BBJ',val:`5 reps × ${sets} · กว้างสุด ลงนุ่ม`},
+      ],
+      tips:[
+        'Row Erg: 60% legs / 20% back / 20% arms — อย่าดึงด้วยแขน',
+        'Farmers Carry: สะบักชิดกัน core เกร็ง มองตรง',
+        'Sandbag Lunge: ลำตัวตั้งตรง เข่าไม่เกินนิ้วเท้า',
+        'BBJ: กระโดดให้ไกล ไม่ใช่สูง — ลงนิ้วเท้าก่อน absorb'
+      ]
+    };
+  }
+
+  if(s.name==='Tempo Tune') return {
+    goal:'ปลุกขา ก่อน Race Week — เน้น feel ไม่เน้น volume',
+    structure:[
+      {phase:'Warm-up (2 km)',desc:'Easy jog Zone 1 · Strides 4×100m ท้าย WU'},
+      {phase:'Main (4 km)',desc:'วิ่ง Race Pace แท้จริง (5:00/km หรือดีกว่า)\nควบคุม HR ไม่ต้องกังวล'},
+      {phase:'Cool-down (2 km)',desc:'Zone 1 → เดิน → ยืดกล้ามเนื้อเบาๆ'},
+    ],
+    targets:[{label:'Total',val:'8 km'},{label:'Main Pace',val:'Race goal pace'}],
+    tips:['Taper week — ไม่ต้องออกแรงเต็ม','ขาควรรู้สึกเบา ถ้ารู้สึกหนักแปลว่า recover ยังไม่ดี']
+  };
+
+  if(s.name==='Light Drill') return {
+    goal:'กระตุ้น neuromuscular patterns · ไม่สะสมความล้า',
+    structure:[
+      {phase:'1 Round Each Station',desc:'SkiErg 200m → Sled Push/Pull 10m → Wall Ball 10 reps\nRow Erg 200m → Farmers Carry 25m → Sandbag Lunge 10m → BBJ 5 reps'},
+      {phase:'Focus',desc:'ท่า Technique คือทุกอย่างวันนี้\nอย่าออกแรงเกิน 50%'},
+    ],
+    targets:[{label:'Intensity',val:'50% max — Tech review only'},{label:'Total time',val:'20–25 นาที'}],
+    tips:['Taper — น้อยคือมาก','ถ้าขาหนักให้หยุดก่อนได้']
+  };
+
+  return {goal:'',structure:[],targets:[],tips:[]};
+}
+
+// ─── State & Storage ──────────────────────────────────────────────────────────
+const START = new Date(2026,7,24);
+let cw=1, logCtx=null, detailCtx=null, selRpeVal=null;
+const PHASE_INFO={1:{label:'Phase 1 · Base & Technique',weeks:'Weeks 1–8'},2:{label:'Phase 2 · Compromised Running',weeks:'Weeks 9–16'},3:{label:'Phase 3 · Race Simulation',weeks:'Weeks 17–24'},4:{label:'Phase 4 · Taper',weeks:'Weeks 25–26'}};
+
+function sg(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
+function ss(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function lk(w,d){return`px_w${w}_d${d}`}
+function wkStart(w){const d=new Date(START);d.setDate(d.getDate()+(w-1)*7);return d}
+function fmtDate(d){return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+function render(){
+  const w=cw, ph=getPhase(w), pi=PHASE_INFO[ph];
+  const ws=wkStart(w), we=new Date(ws); we.setDate(we.getDate()+6);
+  document.getElementById('phase-eyebrow').textContent=pi.label+' · '+pi.weeks;
+  document.getElementById('week-title').textContent='Week '+w;
+  document.getElementById('week-dates-sub').textContent=fmtDate(ws)+' – '+fmtDate(we);
+  document.getElementById('nav-wlabel').textContent='W'+w+' / 26';
+  document.getElementById('btn-prev').disabled=w<=1;
+  document.getElementById('btn-next').disabled=w>=26;
+  document.querySelectorAll('.phase-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelector('.phase-tab.p'+ph).classList.add('active');
+
+  // progress dots
+  const pr=document.getElementById('prog-row'); pr.innerHTML='';
+  for(let i=1;i<=26;i++){
+    const p=getPhase(i);
+    const dot=document.createElement('div');
+    dot.className='prog-dot p'+p+(i<w?' done':i===w?' current':'');
+    dot.title='Week '+i; dot.onclick=()=>{cw=i;render()};
+    pr.appendChild(dot);
+  }
+
+  // cards
+  const grid=document.getElementById('session-grid'); grid.innerHTML='';
+  let totKm=0,runCt=0,hyroxCt=0,logCt=0;
+  for(let d=0;d<7;d++){
+    const s=getSession(w,d);
+    const log=sg(lk(w,d));
+    if(log)logCt++;
+    if(s.type==='run'){runCt++;if(s.km)totKm+=s.km}
+    if(s.type==='hyrox')hyroxCt++;
+    const dd=new Date(ws); dd.setDate(ws.getDate()+d);
+    const dayStr=dd.getDate()+' '+dd.toLocaleString('en',{month:'short'});
+    const card=document.createElement('div');
+    card.className='scard '+s.type;
+    card.onclick=e=>{if(!e.target.closest('button')){openDetail(w,d)}};
+    let inner=`<div class="scard-day">${SHORT[d]} <span style="font-weight:400;letter-spacing:0">${dayStr}</span></div>
+      <span class="scard-typebadge">${s.type==='run'?'Run':s.type==='hyrox'?'Hyrox':'Rest'}</span>
+      <div class="scard-name">${s.name}</div>
+      <div class="scard-detail">${(s.detail||'').replace(/\n/g,'<br>')}</div>`;
+    if(s.km)inner+=`<div class="scard-km">${s.km} <span>km</span></div>`;
+    if(s.type!=='rest'){
+      inner+=`<div class="scard-actions">
+        <button class="scard-detail-btn" onclick="openDetail(${w},${d})">📋 Detail</button>
+        <button class="scard-log-btn${log?' logged-btn':''}" onclick="openLog(${w},${d})">${log?'✓ Logged':'Log →'}</button>
+      </div>`;
+    }
+    card.innerHTML=inner; grid.appendChild(card);
+  }
+  document.getElementById('st-km').innerHTML=`${totKm} <span>km</span>`;
+  document.getElementById('st-runs').innerHTML=`${runCt} <span>sessions</span>`;
+  document.getElementById('st-hyrox').innerHTML=`${hyroxCt} <span>sessions</span>`;
+  document.getElementById('st-logged').innerHTML=`${logCt} <span>/ ${runCt+hyroxCt}</span>`;
+  renderLogList(w,ws);
+}
+
+function renderLogList(w,ws){
+  const list=document.getElementById('log-list');
+  const entries=[];
+  for(let d=0;d<7;d++){const log=sg(lk(w,d));if(log)entries.push({d,log,s:getSession(w,d),dd:new Date(ws.getTime()+d*86400000)})}
+  if(!entries.length){list.innerHTML='<div class="empty-log">ยังไม่มี session ที่ log ในสัปดาห์นี้</div>';return}
+  list.innerHTML=entries.map(({d,log,s,dd})=>{
+    const rpeCls=!log.rpe?'':log.rpe<=4?'rpe-low':log.rpe<=7?'rpe-mid':'rpe-high';
+    const meta=[log.km?`${log.km} km`:'',log.pace?`@${log.pace}/km`:'',log.hr?`HR ${log.hr} bpm`:'',log.dur?`⏱ ${log.dur}`:'',log.cal?`🔥 ${log.cal} kcal`:''].filter(Boolean).join(' · ');
+    const imgHtml=log.imgData?`<img class="log-img-thumb" src="${log.imgData}" onclick="showLightbox('${log.imgData}')" alt="watch screenshot">`:'' ;
+    return `<div class="log-entry">
+      <div class="log-entry-day">${SHORT[d]}<br><span style="font-weight:400;letter-spacing:0;font-size:10px">${dd.getDate()} ${dd.toLocaleString('en',{month:'short'})}</span>${imgHtml}</div>
+      <div class="log-entry-body">
+        <div class="log-entry-name">${s.name}</div>
+        ${meta?`<div class="log-entry-meta">${meta}</div>`:''}
+        ${log.notes?`<div class="log-entry-meta" style="font-style:italic;margin-top:3px">"${log.notes}"</div>`:''}
+        ${log.rpe?`<span class="log-entry-rpe ${rpeCls}">RPE ${log.rpe}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Detail Modal ─────────────────────────────────────────────────────────────
+function openDetail(w,d){
+  const s=getSession(w,d);
+  const ws=wkStart(w); const dd=new Date(ws.getTime()+d*86400000);
+  const det=getDetail(w,d);
+  detailCtx={w,d};
+  const inner=document.getElementById('detail-inner');
+  inner.className='detail-modal '+s.type;
+  document.getElementById('d-badge').textContent=s.type==='run'?'Run':s.type==='hyrox'?'Hyrox':'Rest';
+  document.getElementById('d-title').textContent=s.name;
+  document.getElementById('d-sub').textContent=DAYS[d]+', '+fmtDate(dd)+' · Week '+w+' · '+PHASE_INFO[getPhase(w)].label;
+  document.getElementById('d-log-btn').style.display=s.type==='rest'?'none':'block';
+
+  let html='';
+
+  // Goal
+  if(det.goal) html+=`<div class="detail-section" style="grid-column:1/-1">
+    <div class="detail-section-title">เป้าหมายของ Session นี้</div>
+    <div class="detail-block" style="font-size:14px;font-weight:500;color:var(--text)">${det.goal}</div>
+  </div>`;
+
+  // Structure
+  if(det.structure.length) html+=`<div class="detail-section">
+    <div class="detail-section-title">โครงสร้างการซ้อม</div>
+    <div class="detail-block">
+      ${det.structure.map(s=>`<div class="detail-row">
+        <div class="detail-row-label">${s.phase}</div>
+        <div class="detail-row-val">${s.desc.replace(/\n/g,'<br>')}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+
+  // Targets
+  if(det.targets.length) html+=`<div class="detail-section">
+    <div class="detail-section-title">Targets</div>
+    <div class="detail-block">
+      ${det.targets.map(t=>`<div class="detail-row">
+        <div class="detail-row-label">${t.label}</div>
+        <div class="detail-row-val">${t.val}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+
+  // Tips
+  if(det.tips.length) html+=`<div class="detail-section" style="grid-column:1/-1">
+    <div class="detail-section-title">Tips & Technique Cues</div>
+    <div class="detail-block">
+      ${det.tips.map(t=>`<div class="tip-item">${t}</div>`).join('')}
+    </div>
+  </div>`;
+
+  document.getElementById('d-body').innerHTML=html;
+  document.getElementById('detail-modal').classList.add('open');
+}
+function closeDetail(){document.getElementById('detail-modal').classList.remove('open');detailCtx=null}
+function logFromDetail(){if(detailCtx){closeDetail();openLog(detailCtx.w,detailCtx.d)}}
+
+// ─── Log Modal ────────────────────────────────────────────────────────────────
+function openLog(w,d){
+  const s=getSession(w,d); const ws=wkStart(w);
+  const dd=new Date(ws.getTime()+d*86400000);
+  const log=sg(lk(w,d))||{};
+  logCtx={w,d}; selRpeVal=log.rpe||null;
+  document.getElementById('log-title').textContent=s.name;
+  document.getElementById('log-sub').textContent=DAYS[d]+', '+fmtDate(dd)+' · Week '+w;
+  document.getElementById('f-km').value=log.km||(s.km||'');
+  document.getElementById('f-pace').value=log.pace||'';
+  document.getElementById('f-hr').value=log.hr||'';
+  document.getElementById('f-dur').value=log.dur||'';
+  document.getElementById('f-cal').value=log.cal||'';
+  document.getElementById('f-notes').value=log.notes||'';
+  document.querySelectorAll('.rpe-btn').forEach(b=>b.classList.toggle('sel',+b.textContent===selRpeVal));
+  // reset auto labels
+  ['km','pace','hr','dur','cal'].forEach(k=>{
+    document.getElementById('af-'+k).style.display='none';
+    document.getElementById('f-'+k).classList.remove('auto-val');
+  });
+  // restore image
+  if(log.imgData){
+    document.getElementById('ocr-preview-img').src=log.imgData;
+    document.getElementById('ocr-preview-wrap').classList.add('show');
+    document.getElementById('img-zone').style.display='none';
+  } else {
+    document.getElementById('ocr-preview-wrap').classList.remove('show');
+    document.getElementById('img-zone').style.display='';
+    document.getElementById('img-input').value='';
+  }
+  document.getElementById('ocr-processing').classList.remove('show');
+  document.getElementById('ocr-result-bar').classList.remove('show');
+  document.getElementById('log-modal').classList.add('open');
+  window._currentImgData=log.imgData||null;
+}
+function closeLog(){document.getElementById('log-modal').classList.remove('open');logCtx=null}
+function selRpe(btn,v){selRpeVal=v;document.querySelectorAll('.rpe-btn').forEach(b=>b.classList.remove('sel'));btn.classList.add('sel')}
+
+function saveLog(){
+  if(!logCtx)return;
+  const data={
+    km:document.getElementById('f-km').value,
+    pace:document.getElementById('f-pace').value.trim(),
+    hr:document.getElementById('f-hr').value,
+    dur:document.getElementById('f-dur').value.trim(),
+    cal:document.getElementById('f-cal').value,
+    rpe:selRpeVal,
+    notes:document.getElementById('f-notes').value.trim(),
+    imgData:window._currentImgData||null,
+    saved:new Date().toISOString()
+  };
+  ss(lk(logCtx.w,logCtx.d),data);
+  closeLog(); render();
+}
+
+// ─── Image Import & OCR ───────────────────────────────────────────────────────
+function handleDrop(e){
+  e.preventDefault(); document.getElementById('img-zone').classList.remove('drag');
+  const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/'))handleImgFile(f);
+}
+function handleImgFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    const dataUrl=e.target.result;
+    window._currentImgData=dataUrl;
+    document.getElementById('ocr-preview-img').src=dataUrl;
+    document.getElementById('ocr-preview-wrap').classList.add('show');
+    document.getElementById('img-zone').style.display='none';
+    runOCR(dataUrl);
+  };
+  reader.readAsDataURL(file);
+}
+function clearImg(){
+  window._currentImgData=null;
+  document.getElementById('ocr-preview-wrap').classList.remove('show');
+  document.getElementById('img-zone').style.display='';
+  document.getElementById('img-input').value='';
+  document.getElementById('ocr-processing').classList.remove('show');
+  document.getElementById('ocr-result-bar').classList.remove('show');
+  ['km','pace','hr','dur','cal'].forEach(k=>{
+    document.getElementById('af-'+k).style.display='none';
+    document.getElementById('f-'+k).classList.remove('auto-val');
+  });
+}
+
+async function runOCR(dataUrl){
+  const proc=document.getElementById('ocr-processing');
+  const resBar=document.getElementById('ocr-result-bar');
+  proc.classList.add('show'); resBar.classList.remove('show');
+  document.getElementById('ocr-status-text').textContent='กำลังอ่านข้อมูลจากภาพ...';
+  try{
+    if(typeof Tesseract==='undefined'){proc.classList.remove('show');alert('Tesseract.js ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่');return}
+    const result=await Tesseract.recognize(dataUrl,'eng+tha',{
+      logger:m=>{if(m.status==='recognizing text')document.getElementById('ocr-status-text').textContent=`กำลังอ่าน... ${Math.round((m.progress||0)*100)}%`}
+    });
+    const text=result.data.text;
+    proc.classList.remove('show');
+    const found=parseOCRText(text);
+    const keys=Object.keys(found).filter(k=>found[k]);
+    if(keys.length){
+      const labels={km:'ระยะทาง',pace:'เพซ',hr:'HR',dur:'เวลา',cal:'แคลอรี่'};
+      document.getElementById('ocr-found-text').textContent='✓ อ่านได้: '+keys.map(k=>labels[k]||k).join(' · ');
+      resBar.classList.add('show');
+    } else {
+      document.getElementById('ocr-found-text').textContent='ไม่พบข้อมูลที่อ่านได้ — กรอกเองด้านล่างได้เลย';
+      resBar.classList.add('show');
+    }
+  }catch(err){
+    proc.classList.remove('show');
+    console.error('OCR error:',err);
+    document.getElementById('ocr-found-text').textContent='เกิดข้อผิดพลาดในการอ่าน — กรอกเองได้เลยครับ';
+    document.getElementById('ocr-result-bar').classList.add('show');
+  }
+}
+
+function parseOCRText(text){
+  const found={};
+  // Normalize
+  const t=text.replace(/,/g,'.');
+
+  // Distance: 5.23 km, 12.5km, 14 km
+  const distM=t.match(/(\d+[\.,]\d+)\s*(?:km|กม\.?)/i)||t.match(/\b(\d{1,2}\.\d{1,2})\b/);
+  if(distM){const v=parseFloat(distM[1]);if(v>0.5&&v<100){autoFill('km',v.toFixed(2));found.km=v}}
+
+  // Pace: 5:42 /km, 6:15/km, 5'42", pace 5:42
+  const paceM=t.match(/(\d):(\d{2})\s*(?:\/km|min\/km|นาที\/กม|'|\s+pace)/i);
+  if(paceM){const v=`${paceM[1]}:${paceM[2]}`;autoFill('pace',v);found.pace=v}
+
+  // Duration: 38:22, 1:02:45
+  const durM=t.match(/\b(\d{1,2}):(\d{2}):(\d{2})\b/)||t.match(/\b(\d{2,3}):(\d{2})\b/);
+  if(durM&&!found.pace){const v=durM[0];if(v!==found.pace){autoFill('dur',v);found.dur=v}}
+  else if(durM){autoFill('dur',durM[0]);found.dur=durM[0]}
+
+  // HR avg: avg 142, hr 142, 142 bpm, เฉลี่ย 142
+  const hrM=t.match(/(?:avg(?:\s+hr)?|hr avg|average heart|เฉลี่ย|avg hr)[\s:]*(\d{2,3})/i)||
+             t.match(/(\d{2,3})\s*bpm/i)||
+             t.match(/\b(1[2-9]\d|20\d)\b/);
+  if(hrM){const v=parseInt(hrM[1]||hrM[0]);if(v>=60&&v<=220){autoFill('hr',v);found.hr=v}}
+
+  // Calories: 380 kcal, 380 cal
+  const calM=t.match(/(\d{2,4})\s*(?:kcal|cal|แคล)/i);
+  if(calM){autoFill('cal',parseInt(calM[1]));found.cal=parseInt(calM[1])}
+
+  return found;
+}
+
+function autoFill(field, val){
+  const el=document.getElementById('f-'+field);
+  const af=document.getElementById('af-'+field);
+  el.value=val;
+  el.classList.add('auto-val');
+  af.style.display='inline';
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function changeWeek(d){cw=Math.max(1,Math.min(26,cw+d));render()}
+function jumpPhase(p){cw={1:1,2:9,3:17,4:25}[p];render()}
+function showLightbox(src){document.getElementById('lb-img').src=src;document.getElementById('lightbox').classList.add('open')}
+
+function updateCD(){
+  const now=new Date();
+  const hm=new Date(2026,10,28),hyr=new Date(2027,1,12);
+  document.getElementById('cd-hm').textContent=Math.max(0,Math.ceil((hm-now)/86400000))+' days';
+  document.getElementById('cd-hyrox').textContent=Math.max(0,Math.ceil((hyr-now)/86400000))+' days';
+}
+
+// Theme
+(function(){
+  const saved=sg('px_theme');
+  if(saved)document.documentElement.setAttribute('data-theme',saved);
+  const dark=saved==='dark'||(saved!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);
+  document.getElementById('theme-toggle').textContent=dark?'☀':'☾';
+})();
+document.getElementById('theme-toggle').addEventListener('click',function(){
+  const cur=document.documentElement.getAttribute('data-theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+  const next=cur==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',next);
+  ss('px_theme',next);
+  this.textContent=next==='dark'?'☀':'☾';
+});
+
+// Init week
+(function(){
+  const diff=Math.floor((new Date()-START)/86400000);
+  cw=diff>=0?Math.min(26,Math.floor(diff/7)+1):1;
+})();
+
+// ─── Export / Import ─────────────────────────────────────────────────────────
+function exportData(){
+  const data={version:1,exported:new Date().toISOString(),logs:{}};
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k&&k.startsWith('px_')){
+      try{data.logs[k]=JSON.parse(localStorage.getItem(k))}catch(e){data.logs[k]=localStorage.getItem(k)}
+    }
+  }
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const d=new Date(); const stamp=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+  a.href=url; a.download=`projectx_log_${stamp}.json`; a.click();
+  URL.revokeObjectURL(url);
+  showSyncToast('✓ Export สำเร็จ — บันทึกไฟล์ลง OneDrive\\Claude-Projects\\ProjectX\\');
+}
+
+function importData(input){
+  const file=input.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.logs){alert('ไฟล์ไม่ถูกต้อง — ต้องเป็นไฟล์ที่ Export จาก ProjectX Tracker เท่านั้น');return}
+      let count=0;
+      Object.keys(data.logs).forEach(k=>{
+        if(k.startsWith('px_')){
+          try{localStorage.setItem(k,JSON.stringify(data.logs[k]))}catch(err){}
+          count++;
+        }
+      });
+      input.value='';
+      render();
+      showSyncToast(`✓ Import สำเร็จ — โหลด ${count} รายการ (Export: ${data.exported?data.exported.slice(0,10):'ไม่ทราบ'})`);
+    }catch(err){alert('อ่านไฟล์ไม่ได้: '+err.message)}
+  };
+  reader.readAsText(file);
+}
+
+function showSyncToast(msg){
+  const t=document.getElementById('sync-toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer=setTimeout(()=>t.classList.remove('show'),5000);
+}
+
+updateCD(); setInterval(updateCD,60000);
+render();
+
+// Service Worker registration
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
