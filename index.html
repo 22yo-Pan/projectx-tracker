@@ -1101,6 +1101,7 @@ function fmtSec(s){
 
 // ─── Firestore REST API (no SDK needed) ──────────────────────────────────────
 const FB_PROJECT='projectx-tracker';
+const FB_KEY='AIzaSyAk7WgWYEhWsAILQiXzyjofhFXCKJ9GhKQ';
 const FB_BASE=`https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
 
 function fbFromVal(v){
@@ -1129,7 +1130,7 @@ const _ssOrig=ss;
 function ss(k,v){
   _ssOrig(k,v);
   if(k.startsWith('px_w')){
-    fetch(`${FB_BASE}/logs/${k}`,{
+    fetch(`${FB_BASE}/logs/${k}?key=${FB_KEY}`,{
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({fields:{data:fbToVal(v),ts:fbToVal(Date.now())}})
@@ -1140,7 +1141,7 @@ function ss(k,v){
 // Sync all logs Firestore ↔ localStorage on startup
 async function fbSync(){
   try{
-    const res=await fetch(`${FB_BASE}/logs`);
+    const res=await fetch(`${FB_BASE}/logs?key=${FB_KEY}`);
     if(!res.ok)throw new Error('fetch '+res.status);
     const json=await res.json();
     const docs=json.documents||[];
@@ -1158,7 +1159,7 @@ async function fbSync(){
       if(k&&k.startsWith('px_w')&&!fbIds.has(k)){
         try{
           const v=JSON.parse(localStorage.getItem(k));
-          await fetch(`${FB_BASE}/logs/${k}`,{
+          await fetch(`${FB_BASE}/logs/${k}?key=${FB_KEY}`,{
             method:'PATCH',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({fields:{data:fbToVal(v),ts:fbToVal(Date.now())}})
