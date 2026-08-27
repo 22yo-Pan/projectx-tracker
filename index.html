@@ -13,6 +13,9 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.3/tesseract.min.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -1099,8 +1102,46 @@ function fmtSec(s){
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
 
+// ─── Firebase / Firestore ────────────────────────────────────────────────────
+const FB_CONFIG={
+  apiKey:"AIzaSyAk7WgWYEhWsAILQiXzyjofhFXCKJ9GhKQ",
+  authDomain:"projectx-tracker.firebaseapp.com",
+  projectId:"projectx-tracker",
+  storageBucket:"projectx-tracker.firebasestorage.app",
+  messagingSenderId:"215905239179",
+  appId:"1:215905239179:web:44df3452768c79c5bb948e"
+};
+let db=null;
+try{
+  firebase.initializeApp(FB_CONFIG);
+  db=firebase.firestore();
+}catch(e){console.warn('Firebase init failed',e);}
+
+// Override ss to also write to Firestore
+const _ssOrig=ss;
+function ss(k,v){
+  _ssOrig(k,v);
+  if(db&&k.startsWith('px_w')){
+    db.collection('logs').doc(k).set({data:v,ts:Date.now()}).catch(()=>{});
+  }
+}
+
+// Sync all logs from Firestore → localStorage on startup, then render
+async function fbSync(){
+  if(!db)return;
+  try{
+    const snap=await db.collection('logs').get();
+    snap.forEach(doc=>{
+      const d=doc.data();
+      if(d&&d.data!==undefined)_ssOrig(doc.id,d.data);
+    });
+    showSyncToast('☁ ซิงก์แล้ว');
+  }catch(e){console.warn('Firestore sync failed',e);}
+  render();
+}
+
 updateCD(); setInterval(updateCD,60000);
-render();
+fbSync().catch(()=>render());
 stravaHandleCallback();
 stravaUpdateUI();
 
