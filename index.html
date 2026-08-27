@@ -13,9 +13,6 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.3/tesseract.min.js"></script>
-<!-- Firebase -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -1102,57 +1099,75 @@ function fmtSec(s){
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
 
-// ─── Firebase / Firestore ────────────────────────────────────────────────────
-const FB_CONFIG={
-  apiKey:"AIzaSyAk7WgWYEhWsAILQiXzyjofhFXCKJ9GhKQ",
-  authDomain:"projectx-tracker.firebaseapp.com",
-  projectId:"projectx-tracker",
-  storageBucket:"projectx-tracker.firebasestorage.app",
-  messagingSenderId:"215905239179",
-  appId:"1:215905239179:web:44df3452768c79c5bb948e"
-};
-let db=null;
-try{
-  firebase.initializeApp(FB_CONFIG);
-  db=firebase.firestore();
-}catch(e){console.warn('Firebase init failed',e);}
+// ─── Firestore REST API (no SDK needed) ──────────────────────────────────────
+const FB_PROJECT='projectx-tracker';
+const FB_BASE=`https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
+
+function fbFromVal(v){
+  if(!v)return null;
+  if('stringValue'in v)return v.stringValue;
+  if('integerValue'in v)return Number(v.integerValue);
+  if('doubleValue'in v)return v.doubleValue;
+  if('booleanValue'in v)return v.booleanValue;
+  if('nullValue'in v)return null;
+  if('mapValue'in v){const o={};for(const[k,val]of Object.entries(v.mapValue.fields||{}))o[k]=fbFromVal(val);return o;}
+  if('arrayValue'in v)return(v.arrayValue.values||[]).map(fbFromVal);
+  return null;
+}
+function fbToVal(v){
+  if(v===null||v===undefined)return{nullValue:null};
+  if(typeof v==='string')return{stringValue:v};
+  if(typeof v==='boolean')return{booleanValue:v};
+  if(typeof v==='number')return Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};
+  if(Array.isArray(v))return{arrayValue:{values:v.map(fbToVal)}};
+  if(typeof v==='object'){const f={};for(const[k,val]of Object.entries(v))f[k]=fbToVal(val);return{mapValue:{fields:f}};}
+  return{nullValue:null};
+}
 
 // Override ss to also write to Firestore
 const _ssOrig=ss;
 function ss(k,v){
   _ssOrig(k,v);
-  if(db&&k.startsWith('px_w')){
-    db.collection('logs').doc(k).set({data:v,ts:Date.now()}).catch(()=>{});
+  if(k.startsWith('px_w')){
+    fetch(`${FB_BASE}/logs/${k}`,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fields:{data:fbToVal(v),ts:fbToVal(Date.now())}})
+    }).catch(()=>{});
   }
 }
 
-// Sync all logs from Firestore ↔ localStorage on startup, then render
+// Sync all logs Firestore ↔ localStorage on startup
 async function fbSync(){
-  if(!db){render();return;}
   try{
-    // 1) pull from Firestore
-    const snap=await db.collection('logs').get();
-    const fbKeys=new Set();
-    snap.forEach(doc=>{
-      const d=doc.data();
-      if(d&&d.data!==undefined){_ssOrig(doc.id,d.data);fbKeys.add(doc.id);}
-    });
-    // 2) push local data that isn't in Firestore yet
-    const batch=db.batch();
-    let pushed=0;
+    const res=await fetch(`${FB_BASE}/logs`);
+    if(!res.ok)throw new Error('fetch '+res.status);
+    const json=await res.json();
+    const docs=json.documents||[];
+    const fbIds=new Set();
+    for(const doc of docs){
+      const id=doc.name.split('/').pop();
+      fbIds.add(id);
+      if(id.startsWith('px_w')&&doc.fields?.data){
+        _ssOrig(id,fbFromVal(doc.fields.data));
+      }
+    }
+    // push local keys not yet in Firestore
     for(let i=0;i<localStorage.length;i++){
       const k=localStorage.key(i);
-      if(k&&k.startsWith('px_w')&&!fbKeys.has(k)){
+      if(k&&k.startsWith('px_w')&&!fbIds.has(k)){
         try{
           const v=JSON.parse(localStorage.getItem(k));
-          batch.set(db.collection('logs').doc(k),{data:v,ts:Date.now()});
-          pushed++;
+          await fetch(`${FB_BASE}/logs/${k}`,{
+            method:'PATCH',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({fields:{data:fbToVal(v),ts:fbToVal(Date.now())}})
+          });
         }catch(e){}
       }
     }
-    if(pushed>0)await batch.commit();
     showSyncToast('☁ ซิงก์แล้ว');
-  }catch(e){console.warn('Firestore sync failed',e);}
+  }catch(e){console.warn('fbSync error',e);}
   render();
 }
 
