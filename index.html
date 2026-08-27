@@ -228,6 +228,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;align-items:center;justify-content:center;cursor:zoom-out}
 .lightbox.open{display:flex}
 .lightbox img{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px}
+
+/* LOG ENTRY ACTIONS */
+.log-entry-actions{display:flex;gap:6px;margin-top:8px}
+.log-action-btn{padding:3px 10px;background:none;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s}
+.log-action-btn:hover{border-color:var(--text);color:var(--text)}
+.log-action-btn.delete:hover{border-color:#c0392b;color:#c0392b}
+
+/* ANALYTICS */
+.analytics-section{padding:24px 32px;border-top:1px solid var(--border);display:none}
+.analytics-cards{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:20px}
+@media(max-width:900px){.analytics-cards{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:500px){.analytics-cards{grid-template-columns:repeat(2,1fr)}}
+.ana-card{background:var(--card);border:1px solid var(--border);border-radius:3px;padding:12px 14px}
+.ana-label{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.ana-val{font-size:22px;font-weight:700;line-height:1;color:var(--text)}
+.ana-val span{font-size:11px;font-weight:400;color:var(--muted)}
+.analytics-chart-box{background:var(--card);border:1px solid var(--border);border-radius:3px;padding:16px;margin-bottom:14px}
+.analytics-chart-title{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.analytics-rec{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--run);border-radius:3px;padding:16px}
+.analytics-rec-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px}
+.analytics-rec-body{font-size:13px;color:var(--text);line-height:1.9}
 </style>
 </head>
 <body>
@@ -251,11 +272,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <div class="sync-bar">
   <span class="sync-label">Data Sync</span>
-  <button class="sync-btn export" onclick="exportData()">⬇ Export JSON</button>
-  <label class="sync-btn import" style="cursor:pointer">
-    ⬆ Import JSON
-    <input type="file" accept=".json" style="display:none" onchange="importData(this)">
-  </label>
+  <button class="sync-btn" onclick="fbSync()">☁ Sync Now</button>
+  <button class="sync-btn" id="analytics-toggle-btn" onclick="toggleAnalytics()">📊 Analytics</button>
   <button class="sync-btn strava" id="strava-btn" onclick="stravaAction()">🟠 Connect Strava</button>
   <span class="sync-toast" id="sync-toast"></span>
 </div>
@@ -292,6 +310,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="log-section-title">Logged Sessions</div>
     <div id="log-list"></div>
   </div>
+</div>
+
+<div class="analytics-section" id="analytics-section">
+  <div id="analytics-content"></div>
 </div>
 
 <!-- DETAIL MODAL -->
@@ -677,11 +699,15 @@ function renderLogList(w,ws){
     const imgHtml=log.imgData?`<img class="log-img-thumb" src="${log.imgData}" onclick="showLightbox('${log.imgData}')" alt="watch screenshot">`:'' ;
     return `<div class="log-entry">
       <div class="log-entry-day">${SHORT[d]}<br><span style="font-weight:400;letter-spacing:0;font-size:10px">${dd.getDate()} ${dd.toLocaleString('en',{month:'short'})}</span>${imgHtml}</div>
-      <div class="log-entry-body">
+      <div class="log-entry-body" style="flex:1">
         <div class="log-entry-name">${s.name}</div>
         ${meta?`<div class="log-entry-meta">${meta}</div>`:''}
         ${log.notes?`<div class="log-entry-meta" style="font-style:italic;margin-top:3px">"${log.notes}"</div>`:''}
         ${log.rpe?`<span class="log-entry-rpe ${rpeCls}">RPE ${log.rpe}</span>`:''}
+        <div class="log-entry-actions">
+          <button class="log-action-btn" onclick="openLog(${w},${d})">✏ Edit</button>
+          <button class="log-action-btn delete" onclick="deleteLog(${w},${d})">🗑 Delete</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -934,44 +960,206 @@ document.getElementById('theme-toggle').addEventListener('click',function(){
   cw=diff>=0?Math.min(26,Math.floor(diff/7)+1):1;
 })();
 
-// ─── Export / Import ─────────────────────────────────────────────────────────
-function exportData(){
-  const data={version:1,exported:new Date().toISOString(),logs:{}};
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(k&&k.startsWith('px_')){
-      try{data.logs[k]=JSON.parse(localStorage.getItem(k))}catch(e){data.logs[k]=localStorage.getItem(k)}
-    }
-  }
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  const d=new Date(); const stamp=`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  a.href=url; a.download=`projectx_log_${stamp}.json`; a.click();
-  URL.revokeObjectURL(url);
-  showSyncToast('✓ Export สำเร็จ — บันทึกไฟล์ลง OneDrive\\Claude-Projects\\ProjectX\\');
+// ─── Delete Log ──────────────────────────────────────────────────────────────
+function deleteLog(w,d){
+  if(!confirm('ลบ log นี้? (ไม่สามารถย้อนกลับได้)'))return;
+  const k=lk(w,d);
+  localStorage.removeItem(k);
+  // Delete from Firestore
+  fetch(`${FB_BASE}/logs/${k}?key=${FB_KEY}`,{method:'DELETE'}).catch(()=>{});
+  showSyncToast('🗑 ลบ log แล้ว');
+  render();
 }
 
-function importData(input){
-  const file=input.files[0]; if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      const data=JSON.parse(e.target.result);
-      if(!data.logs){alert('ไฟล์ไม่ถูกต้อง — ต้องเป็นไฟล์ที่ Export จาก ProjectX Tracker เท่านั้น');return}
-      let count=0;
-      Object.keys(data.logs).forEach(k=>{
-        if(k.startsWith('px_')){
-          try{localStorage.setItem(k,JSON.stringify(data.logs[k]))}catch(err){}
-          count++;
-        }
-      });
-      input.value='';
-      render();
-      showSyncToast(`✓ Import สำเร็จ — โหลด ${count} รายการ (Export: ${data.exported?data.exported.slice(0,10):'ไม่ทราบ'})`);
-    }catch(err){alert('อ่านไฟล์ไม่ได้: '+err.message)}
-  };
-  reader.readAsText(file);
+// ─── Analytics ───────────────────────────────────────────────────────────────
+let analyticsOpen=false;
+
+function toggleAnalytics(){
+  analyticsOpen=!analyticsOpen;
+  const sec=document.getElementById('analytics-section');
+  const btn=document.getElementById('analytics-toggle-btn');
+  sec.style.display=analyticsOpen?'block':'none';
+  btn.style.borderColor=analyticsOpen?'var(--run)':'';
+  btn.style.color=analyticsOpen?'var(--run)':'';
+  if(analyticsOpen)renderAnalytics();
+}
+
+function parsePaceToMin(p){
+  if(!p)return null;
+  const m=p.match(/^(\d+):(\d{2})$/);
+  if(!m)return null;
+  return parseInt(m[1])+parseInt(m[2])/60;
+}
+function fmtMinToPace(v){
+  if(!v)return'—';
+  const m=Math.floor(v);const s=Math.round((v-m)*60);
+  return`${m}:${String(s).padStart(2,'0')}`;
+}
+
+function renderAnalytics(){
+  const container=document.getElementById('analytics-content');
+
+  // Collect all data across all 26 weeks
+  const allLogs=[];
+  const weekData=[];
+  for(let w=1;w<=26;w++){
+    let targetKm=0,actualKm=0;
+    for(let d=0;d<7;d++){
+      const s=getSession(w,d);
+      if(s.km)targetKm+=s.km;
+      const log=sg(lk(w,d));
+      if(log){actualKm+=(parseFloat(log.km)||0);allLogs.push({w,d,log,s});}
+    }
+    weekData.push({w,targetKm,actualKm});
+  }
+
+  // Summary stats
+  const totalKm=allLogs.reduce((a,e)=>a+(parseFloat(e.log.km)||0),0);
+  const totalSessions=allLogs.length;
+  const runLogs=allLogs.filter(e=>e.s.type==='run');
+  const paceValsAll=runLogs.map(e=>parsePaceToMin(e.log.pace)).filter(Boolean);
+  const hrValsAll=allLogs.map(e=>parseInt(e.log.hr)).filter(v=>v>=50&&v<=220);
+  const avgPace=paceValsAll.length?paceValsAll.reduce((a,b)=>a+b,0)/paceValsAll.length:null;
+  const avgHR=hrValsAll.length?Math.round(hrValsAll.reduce((a,b)=>a+b,0)/hrValsAll.length):null;
+  let totalTarget=0;
+  for(let w=1;w<=26;w++)for(let d=0;d<7;d++)if(getSession(w,d).type!=='rest')totalTarget++;
+  const compliance=totalTarget>0?Math.round((totalSessions/totalTarget)*100):0;
+  const longRuns=allLogs.filter(e=>e.s.name==='Long Run'&&e.log.km);
+  const bestLR=longRuns.reduce((b,e)=>(!b||parseFloat(e.log.km)>parseFloat(b.log.km))?e:b,null);
+
+  // Chart sizing
+  const chartW=Math.min(720,window.innerWidth-80);
+
+  // ─ Weekly km bar chart ─
+  const lastWlogged=Math.max(...allLogs.map(e=>e.w),0);
+  const showW=Math.min(26,Math.max(10,lastWlogged+3));
+  const wSlice=weekData.slice(0,showW);
+  const maxKm=Math.max(...wSlice.map(d=>Math.max(d.targetKm,d.actualKm)),10);
+  const bPad={l:36,r:8,t:10,b:28};
+  const bIW=chartW-bPad.l-bPad.r,bIH=150-bPad.t-bPad.b;
+  const barW=bIW/showW;
+  const phColors={1:'var(--run)',2:'var(--hyrox)',3:'var(--green)',4:'var(--muted)'};
+  const yGridVals=[0,Math.round(maxKm/2),Math.round(maxKm)];
+
+  const weekBars=wSlice.map((wd,i)=>{
+    const pc=phColors[getPhase(wd.w)];
+    const tH=(wd.targetKm/maxKm)*bIH;
+    const aH=(wd.actualKm/maxKm)*bIH;
+    const x=bPad.l+i*barW;const bw=Math.max(barW-2,1);
+    const label=(i%4===0||i===showW-1)?`<text x="${(x+bw/2).toFixed(1)}" y="${bPad.t+bIH+18}" text-anchor="middle" font-size="9" fill="var(--muted)">W${wd.w}</text>`:'' ;
+    return`<rect x="${x.toFixed(1)}" y="${(bPad.t+bIH-tH).toFixed(1)}" width="${bw.toFixed(1)}" height="${tH.toFixed(1)}" fill="${pc}" opacity="0.18" rx="1"/>
+${wd.actualKm>0?`<rect x="${x.toFixed(1)}" y="${(bPad.t+bIH-aH).toFixed(1)}" width="${bw.toFixed(1)}" height="${aH.toFixed(1)}" fill="${pc}" opacity="0.82" rx="1"/>`:''}
+${label}`;
+  }).join('');
+  const yGrid=yGridVals.map(v=>{
+    const y=bPad.t+bIH-(v/maxKm)*bIH;
+    return`<text x="${bPad.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${v}</text><line x1="${bPad.l}" y1="${y.toFixed(1)}" x2="${bPad.l+bIW}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="0.5"/>`;
+  }).join('');
+  const weekChart=`<svg width="${chartW}" height="150" style="overflow:visible;display:block">${yGrid}${weekBars}<text x="${(bPad.l+bIW/2).toFixed(1)}" y="148" text-anchor="middle" font-size="9" fill="var(--muted)">สัปดาห์ (แถบจาง = เป้าหมาย · แถบเข้ม = จริง)</text></svg>`;
+
+  // ─ Pace & HR trend chart ─
+  const trendLogs=allLogs.filter(e=>e.s.type==='run'&&(parsePaceToMin(e.log.pace)||parseInt(e.log.hr)>0));
+  let trendChart='<div style="font-size:12px;color:var(--muted);padding:20px;text-align:center">ต้องการข้อมูล run อย่างน้อย 2 session เพื่อแสดง trend</div>';
+  if(trendLogs.length>=2){
+    const n=trendLogs.length;
+    const tp={l:46,r:46,t:12,b:24};
+    const tIW=chartW-tp.l-tp.r,tIH=130-tp.t-tp.b;
+    const pVals=trendLogs.map(e=>parsePaceToMin(e.log.pace));
+    const hVals=trendLogs.map(e=>{const v=parseInt(e.log.hr);return(v>=50&&v<=220)?v:null;});
+    const vp=pVals.filter(Boolean),vh=hVals.filter(Boolean);
+    const pMin=vp.length?Math.min(...vp)-0.3:4,pMax=vp.length?Math.max(...vp)+0.3:8;
+    const hMin=vh.length?Math.min(...vh)-5:100,hMax=vh.length?Math.max(...vh)+5:200;
+    const px=(i,v)=>({x:tp.l+(i/(n-1))*tIW,y:tp.t+((v-pMin)/(pMax-pMin))*tIH});
+    const hx=(i,v)=>({x:tp.l+(i/(n-1))*tIW,y:tp.t+tIH-((v-hMin)/(hMax-hMin))*tIH});
+    const pp=pVals.map((v,i)=>v?px(i,v):null);
+    const hp=hVals.map((v,i)=>v?hx(i,v):null);
+    const polyPts=pts=>pts.filter(Boolean).map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const dots=(pts,col)=>pts.filter(Boolean).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="${col}"/>`).join('');
+    const pAxisL=[pMin,(pMin+pMax)/2,pMax].map(v=>{const y=tp.t+((v-pMin)/(pMax-pMin))*tIH;return`<text x="${tp.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--run)">${fmtMinToPace(v)}</text>`;}).join('');
+    const hAxisL=vh.length?[hMin,Math.round((hMin+hMax)/2),hMax].map(v=>{const y=tp.t+tIH-((v-hMin)/(hMax-hMin))*tIH;return`<text x="${tp.l+tIW+4}" y="${(y+4).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--hyrox)">${Math.round(v)}</text>`;}).join(''):'';
+    trendChart=`<svg width="${chartW}" height="130" style="overflow:visible;display:block">
+      ${pAxisL}${hAxisL}
+      ${vp.length>=2?`<polyline points="${polyPts(pp)}" fill="none" stroke="var(--run)" stroke-width="1.5" opacity="0.85"/>`:''}
+      ${vh.length>=2?`<polyline points="${polyPts(hp)}" fill="none" stroke="var(--hyrox)" stroke-width="1.5" opacity="0.85"/>`:''}
+      ${dots(pp,'var(--run)')}${dots(hp,'var(--hyrox)')}
+      <text x="${tp.l}" y="128" font-size="9" fill="var(--run)">— Pace (min/km)</text>
+      <text x="${tp.l+tIW}" y="128" text-anchor="end" font-size="9" fill="var(--hyrox)">— HR (bpm) —</text>
+    </svg>`;
+  }
+
+  // ─ Recommendation ─
+  const rec=getRecommendation(weekData,allLogs);
+
+  container.innerHTML=`
+    <div class="analytics-cards">
+      <div class="ana-card"><div class="ana-label">Total Distance</div><div class="ana-val">${totalKm.toFixed(1)}<span> km</span></div></div>
+      <div class="ana-card"><div class="ana-label">Sessions Logged</div><div class="ana-val">${totalSessions}<span> / ${totalTarget}</span></div></div>
+      <div class="ana-card"><div class="ana-label">Avg Pace (Run)</div><div class="ana-val">${avgPace?fmtMinToPace(avgPace):'—'}<span>${avgPace?' /km':''}</span></div></div>
+      <div class="ana-card"><div class="ana-label">Avg Heart Rate</div><div class="ana-val">${avgHR||'—'}<span>${avgHR?' bpm':''}</span></div></div>
+      <div class="ana-card"><div class="ana-label">Compliance</div><div class="ana-val">${compliance}<span>%</span></div></div>
+      <div class="ana-card"><div class="ana-label">Best Long Run</div><div class="ana-val">${bestLR?parseFloat(bestLR.log.km).toFixed(1):'—'}<span>${bestLR?' km':''}</span></div></div>
+    </div>
+    <div class="analytics-chart-box">
+      <div class="analytics-chart-title">Weekly Training Volume (km)</div>
+      <div style="overflow-x:auto">${weekChart}</div>
+    </div>
+    <div class="analytics-chart-box">
+      <div class="analytics-chart-title">Pace & HR Trend — Run Sessions</div>
+      <div style="overflow-x:auto">${trendChart}</div>
+    </div>
+    <div class="analytics-rec">
+      <div class="analytics-rec-title">🎯 วิเคราะห์และแนะนำสัปดาห์ถัดไป</div>
+      <div class="analytics-rec-body">${rec}</div>
+    </div>`;
+}
+
+function getRecommendation(weekData,allLogs){
+  if(!allLogs.length)return'ยังไม่มีข้อมูล — เริ่ม log session แรกได้เลย!';
+  const lastW=Math.max(...allLogs.map(e=>e.w));
+  const nextW=Math.min(26,lastW+1);
+  const lwd=weekData[lastW-1];
+  const nwd=weekData[nextW-1];
+  const lastLogs=allLogs.filter(e=>e.w===lastW);
+  const rpes=lastLogs.map(e=>e.log.rpe).filter(Boolean);
+  const avgRPE=rpes.length?rpes.reduce((a,b)=>a+b,0)/rpes.length:null;
+  const volRatio=lwd&&lwd.targetKm>0?lwd.actualKm/lwd.targetKm:null;
+  const recent3=allLogs.filter(e=>e.w>=lastW-2);
+  const r3rpes=recent3.map(e=>e.log.rpe).filter(Boolean);
+  const avg3RPE=r3rpes.length?r3rpes.reduce((a,b)=>a+b,0)/r3rpes.length:null;
+  const ph=getPhase(nextW);
+  const phN={1:'Base & Technique',2:'Compromised Running',3:'Race Simulation',4:'Taper'};
+  const lines=[];
+
+  // Volume analysis
+  if(volRatio!==null){
+    if(volRatio<0.7)lines.push(`⚠️ <b>Volume สัปดาห์ที่แล้ว</b> ${lwd.actualKm.toFixed(1)} km — ต่ำกว่าแผน ${Math.round((1-volRatio)*100)}% ควรเพิ่ม consistency ในสัปดาห์หน้า`);
+    else if(volRatio>=1.0)lines.push(`✅ <b>Volume สัปดาห์ที่แล้ว</b> ${lwd.actualKm.toFixed(1)} km — ทำได้ตามแผน ดีมาก`);
+    else lines.push(`📊 <b>Volume สัปดาห์ที่แล้ว</b> ${lwd.actualKm.toFixed(1)} km (${Math.round(volRatio*100)}% ของแผน) — ใกล้เคียงแผนดี`);
+  }
+
+  // RPE analysis
+  if(avgRPE!==null){
+    if(avgRPE>8)lines.push(`🔴 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> สูงมาก — สัปดาห์หน้าควรลด intensity ลง 10–15% เน้น easy run มากขึ้น`);
+    else if(avgRPE>7)lines.push(`🟠 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> ค่อนข้างสูง — รักษา volume ตามแผน อย่าเพิ่ม intensity`);
+    else if(avgRPE<5)lines.push(`🟢 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> ต่ำ — ร่างกายพร้อม ปฏิบัติตามแผนได้เต็มที่`);
+    else lines.push(`🟢 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> อยู่ในช่วงเหมาะสม — ปฏิบัติตามแผนได้เลย`);
+  }
+
+  // 3-week overload check
+  if(avg3RPE!==null&&avg3RPE>7.5&&recent3.length>=8)lines.push(`⚠️ <b>RPE เฉลี่ย 3 สัปดาห์ ${avg3RPE.toFixed(1)}/10</b> สะสมสูง — พิจารณา deload สัปดาห์นี้ ลด volume 30–40%`);
+
+  // Next week plan
+  const ntKm=nwd?nwd.targetKm:0;
+  if(lastW<26)lines.push(`📅 <b>สัปดาห์ ${nextW} — ${phN[ph]}</b><br>เป้าหมาย ${ntKm} km · ${ph===1?'เน้น Zone 2 HR <145 · สร้างฐานแอโรบิก':ph===2?'Brick sessions + compromised run หลัง stations':ph===3?'Race simulation ครบ 8 stations · race pace work':'ลด volume รักษาความเร็ว · พักให้เต็มที่ก่อนแข่ง'}`);
+  else lines.push(`🏁 <b>จบ 26 สัปดาห์แล้ว!</b> ถึงเวลาแข่งขัน — ไปโชว์ผลงานได้เลย!`);
+
+  // Phase tip
+  if(ph===1)lines.push(`💡 <b>Tip:</b> ทุก easy run ให้ HR ไม่เกิน 145 bpm ถ้า HR เกินให้ช้าลงหรือเดินก่อน — pace ไม่สำคัญ`);
+  else if(ph===2)lines.push(`💡 <b>Tip:</b> Brick training — วิ่งทันทีหลัง stations โดยไม่พัก เพื่อฝึก legs ที่ fatigued สำหรับ Hyrox จริง`);
+  else if(ph===3)lines.push(`💡 <b>Tip:</b> Race sim ให้ทำ stations ตามลำดับ Hyrox จริงทุกครั้ง (SkiErg → Sled Push → … → Burpee Broad Jump) ฝึก mental game`);
+  else lines.push(`💡 <b>Tip:</b> อย่า overtrain ช่วง Taper — ร่างกายกำลัง supercompensate ความรู้สึก "ง่าย" คือสัญญาณที่ดี`);
+
+  return lines.join('<br><br>');
 }
 
 function showSyncToast(msg){
