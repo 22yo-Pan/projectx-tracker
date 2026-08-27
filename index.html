@@ -1126,15 +1126,31 @@ function ss(k,v){
   }
 }
 
-// Sync all logs from Firestore → localStorage on startup, then render
+// Sync all logs from Firestore ↔ localStorage on startup, then render
 async function fbSync(){
-  if(!db)return;
+  if(!db){render();return;}
   try{
+    // 1) pull from Firestore
     const snap=await db.collection('logs').get();
+    const fbKeys=new Set();
     snap.forEach(doc=>{
       const d=doc.data();
-      if(d&&d.data!==undefined)_ssOrig(doc.id,d.data);
+      if(d&&d.data!==undefined){_ssOrig(doc.id,d.data);fbKeys.add(doc.id);}
     });
+    // 2) push local data that isn't in Firestore yet
+    const batch=db.batch();
+    let pushed=0;
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith('px_w')&&!fbKeys.has(k)){
+        try{
+          const v=JSON.parse(localStorage.getItem(k));
+          batch.set(db.collection('logs').doc(k),{data:v,ts:Date.now()});
+          pushed++;
+        }catch(e){}
+      }
+    }
+    if(pushed>0)await batch.commit();
     showSyncToast('☁ ซิงก์แล้ว');
   }catch(e){console.warn('Firestore sync failed',e);}
   render();
