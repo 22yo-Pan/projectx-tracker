@@ -54,7 +54,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .sync-btn.export:hover{background:var(--run-bg)}
 .sync-btn.import{border-color:var(--hyrox);color:var(--hyrox)}
 .sync-btn.import:hover{background:var(--hyrox-bg)}
+.sync-btn.strava{border-color:#fc4c02;color:#fc4c02}
+.sync-btn.strava:hover{background:rgba(252,76,2,.08)}
+.sync-btn.strava.connected{border-color:var(--green);color:var(--green)}
+.sync-btn.strava.connected:hover{background:var(--green-bg)}
 .sync-toast{font-size:11px;color:var(--green);font-weight:600;display:none}
+
+/* STRAVA ACTIVITY LIST */
+.strava-import-btn{width:100%;padding:10px;background:rgba(252,76,2,.08);border:1px solid #fc4c02;border-radius:3px;color:#fc4c02;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .2s;margin-bottom:10px}
+.strava-import-btn:hover{background:rgba(252,76,2,.16)}
+.strava-import-btn:disabled{opacity:.5;cursor:not-allowed}
+.strava-activity-list{border:1px solid var(--border);border-radius:3px;overflow:hidden;margin-bottom:14px}
+.strava-activity-item{padding:10px 14px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);transition:background .15s}
+.strava-activity-item:last-child{border-bottom:none}
+.strava-activity-item:hover{background:var(--bg)}
+.strava-act-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.strava-act-meta{font-size:11px;color:var(--muted)}
+.strava-act-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;background:rgba(252,76,2,.1);color:#fc4c02;flex-shrink:0;margin-left:10px}
 .sync-toast.show{display:block}
 
 /* PHASE NAV */
@@ -240,6 +256,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     ⬆ Import JSON
     <input type="file" accept=".json" style="display:none" onchange="importData(this)">
   </label>
+  <button class="sync-btn strava" id="strava-btn" onclick="stravaAction()">🟠 Connect Strava</button>
   <span class="sync-toast" id="sync-toast"></span>
 </div>
 
@@ -300,6 +317,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="log-modal">
     <div class="log-title" id="log-title"></div>
     <div class="log-sub" id="log-sub"></div>
+
+    <!-- STRAVA IMPORT -->
+    <div id="strava-import-section" style="display:none">
+      <button class="strava-import-btn" id="strava-fetch-btn" onclick="stravaShowActivities()">
+        🟠 Import from Strava
+      </button>
+      <div id="strava-activities" class="strava-activity-list" style="display:none"></div>
+    </div>
 
     <!-- IMAGE IMPORT -->
     <div class="img-import-zone" id="img-zone" ondragover="e=>{e.preventDefault();this.classList.add('drag')}" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
@@ -954,8 +979,130 @@ function showSyncToast(msg){
   window._toastTimer=setTimeout(()=>t.classList.remove('show'),5000);
 }
 
+// ─── Strava Integration ───────────────────────────────────────────────────────
+const STRAVA_CID='274996';
+const STRAVA_SECRET='62a3a287a65441cefa6139f0cd6c33ad4d2d4f2a';
+const STRAVA_REDIRECT='https://22yo-pan.github.io/projectx-tracker/';
+
+function stravaConnect(){
+  const url=`https://www.strava.com/oauth/authorize?client_id=${STRAVA_CID}&response_type=code&redirect_uri=${encodeURIComponent(STRAVA_REDIRECT)}&approval_prompt=auto&scope=activity:read_all`;
+  window.location.href=url;
+}
+
+async function stravaHandleCallback(){
+  const params=new URLSearchParams(window.location.search);
+  const code=params.get('code');
+  if(!code)return;
+  window.history.replaceState({},'',window.location.pathname);
+  showSyncToast('🔄 กำลังเชื่อมต่อ Strava...');
+  try{
+    const resp=await fetch('https://www.strava.com/oauth/token',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({client_id:STRAVA_CID,client_secret:STRAVA_SECRET,code:code,grant_type:'authorization_code'})
+    });
+    const data=await resp.json();
+    if(data.access_token){
+      ss('px_strava',{access_token:data.access_token,refresh_token:data.refresh_token,expires_at:data.expires_at,
+        athlete:data.athlete?data.athlete.firstname+' '+data.athlete.lastname:'Athlete'});
+      stravaUpdateUI();
+      showSyncToast(`✓ เชื่อมต่อ Strava สำเร็จ — ${data.athlete?data.athlete.firstname:''}พร้อมใช้งาน!`);
+    }else{showSyncToast('❌ เชื่อมต่อ Strava ไม่สำเร็จ: '+(data.message||'ลองใหม่'))}
+  }catch(e){showSyncToast('❌ เชื่อมต่อ Strava ไม่สำเร็จ: '+e.message)}
+}
+
+async function stravaGetToken(){
+  const s=sg('px_strava'); if(!s)return null;
+  const now=Math.floor(Date.now()/1000);
+  if(s.expires_at>now+300)return s.access_token;
+  try{
+    const resp=await fetch('https://www.strava.com/oauth/token',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({client_id:STRAVA_CID,client_secret:STRAVA_SECRET,refresh_token:s.refresh_token,grant_type:'refresh_token'})
+    });
+    const data=await resp.json();
+    if(data.access_token){
+      ss('px_strava',{...s,access_token:data.access_token,refresh_token:data.refresh_token,expires_at:data.expires_at});
+      return data.access_token;
+    }
+  }catch(e){}
+  return null;
+}
+
+function stravaAction(){
+  const s=sg('px_strava');
+  if(s){if(confirm('ยกเลิกการเชื่อมต่อ Strava?')){localStorage.removeItem('px_strava');stravaUpdateUI();showSyncToast('✓ ยกเลิก Strava แล้ว')}}
+  else{stravaConnect()}
+}
+
+function stravaUpdateUI(){
+  const s=sg('px_strava');
+  const btn=document.getElementById('strava-btn');
+  const sec=document.getElementById('strava-import-section');
+  if(s){btn.textContent='🟠 Strava: '+(s.athlete||'Connected');btn.classList.add('connected');if(sec)sec.style.display='block'}
+  else{btn.textContent='🟠 Connect Strava';btn.classList.remove('connected');if(sec)sec.style.display='none'}
+}
+
+async function stravaShowActivities(){
+  const token=await stravaGetToken();
+  if(!token){showSyncToast('❌ กรุณา Connect Strava ก่อน');return}
+  const btn=document.getElementById('strava-fetch-btn');
+  btn.disabled=true;btn.textContent='🔄 กำลังโหลด...';
+  try{
+    const resp=await fetch('https://www.strava.com/api/v3/athlete/activities?per_page=10',{headers:{'Authorization':'Bearer '+token}});
+    const acts=await resp.json();
+    const listEl=document.getElementById('strava-activities');
+    if(!Array.isArray(acts)||!acts.length){
+      listEl.innerHTML='<div style="padding:12px;text-align:center;font-size:13px;color:var(--muted)">ไม่พบกิจกรรมล่าสุด</div>';
+    }else{
+      listEl.innerHTML=acts.slice(0,8).map(a=>{
+        const km=(a.distance/1000).toFixed(2);
+        const pace=a.average_speed>0?fmtPace(a.average_speed):'';
+        const hr=a.average_heartrate?Math.round(a.average_heartrate):'';
+        const dur=fmtSec(a.moving_time);
+        const cal=a.calories||'';
+        const date=new Date(a.start_date_local).toLocaleDateString('th-TH',{day:'numeric',month:'short'});
+        const payload=JSON.stringify({km,pace,hr:hr+'',dur,cal:cal+''}).replace(/'/g,'&apos;');
+        return `<div class="strava-activity-item" onclick='stravaImport(${payload})'>
+          <div><div class="strava-act-name">${a.name}</div>
+          <div class="strava-act-meta">${date} · ${km} km${pace?' · '+pace+'/km':''} ${hr?'· ❤ '+hr:''}${cal?' · '+cal+' kcal':''}</div></div>
+          <div class="strava-act-badge">${a.sport_type||a.type||'Run'}</div>
+        </div>`;
+      }).join('');
+    }
+    listEl.style.display='block';
+  }catch(e){showSyncToast('❌ โหลด Strava ไม่ได้: '+e.message)}
+  btn.disabled=false;btn.textContent='🟠 Import from Strava';
+}
+
+function stravaImport(data){
+  if(data.km)autoFill('km',data.km);
+  if(data.pace)autoFill('pace',data.pace);
+  if(data.hr)autoFill('hr',data.hr);
+  if(data.dur)autoFill('dur',data.dur);
+  if(data.cal)autoFill('cal',data.cal);
+  document.getElementById('strava-activities').style.display='none';
+  const found=['km','pace','hr','dur','cal'].filter(k=>data[k]);
+  const labels={km:'ระยะทาง',pace:'เพซ',hr:'HR',dur:'เวลา',cal:'แคลอรี่'};
+  document.getElementById('ocr-found-text').textContent='🟠 Strava: '+found.map(k=>labels[k]).join(' · ');
+  document.getElementById('ocr-result-bar').classList.add('show');
+}
+
+function fmtPace(mps){
+  const s=1000/mps; const m=Math.floor(s/60); const sec=Math.round(s%60);
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+function fmtSec(s){
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  if(h>0)return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
 updateCD(); setInterval(updateCD,60000);
 render();
+stravaHandleCallback();
+stravaUpdateUI();
 
 // Service Worker registration
 if('serviceWorker' in navigator){
