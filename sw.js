@@ -1,4 +1,4 @@
-const CACHE = 'projectx-v1';
+const CACHE = 'projectx-v3';
 const ASSETS = [
   '/projectx-tracker/',
   '/projectx-tracker/index.html',
@@ -22,6 +22,7 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Network first for CDN (Tesseract, Fonts), cache first for local assets
   const url = new URL(e.request.url);
   const isLocal = url.origin === self.location.origin;
 
