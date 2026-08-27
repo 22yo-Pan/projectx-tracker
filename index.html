@@ -604,7 +604,8 @@ let cw=1, logCtx=null, detailCtx=null, selRpeVal=null;
 const PHASE_INFO={1:{label:'Phase 1 · Base & Technique',weeks:'Weeks 1–8'},2:{label:'Phase 2 · Compromised Running',weeks:'Weeks 9–16'},3:{label:'Phase 3 · Race Simulation',weeks:'Weeks 17–24'},4:{label:'Phase 4 · Taper',weeks:'Weeks 25–26'}};
 
 function sg(k){try{return JSON.parse(localStorage.getItem(k)||'null')}catch(e){return null}}
-function ss(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function _ssLocal(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function ss(k,v){_ssLocal(k,v);}
 function lk(w,d){return`px_w${w}_d${d}`}
 function wkStart(w){const d=new Date(START);d.setDate(d.getDate()+(w-1)*7);return d}
 function fmtDate(d){return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
@@ -1126,9 +1127,9 @@ function fbToVal(v){
 }
 
 // Override ss to also write to Firestore
-const _ssOrig=ss;
-function ss(k,v){
-  _ssOrig(k,v);
+// Patch ss to also write to Firestore (no redeclaration — avoids hoisting loop)
+ss = function(k,v){
+  _ssLocal(k,v);
   if(k.startsWith('px_w')){
     fetch(`${FB_BASE}/logs/${k}?key=${FB_KEY}`,{
       method:'PATCH',
@@ -1136,7 +1137,7 @@ function ss(k,v){
       body:JSON.stringify({fields:{data:fbToVal(v),ts:fbToVal(Date.now())}})
     }).catch(()=>{});
   }
-}
+};
 
 // Sync all logs Firestore ↔ localStorage on startup
 async function fbSync(){
@@ -1150,7 +1151,7 @@ async function fbSync(){
       const id=doc.name.split('/').pop();
       fbIds.add(id);
       if(id.startsWith('px_w')&&doc.fields?.data){
-        _ssOrig(id,fbFromVal(doc.fields.data));
+        _ssLocal(id,fbFromVal(doc.fields.data));
       }
     }
     // push local keys not yet in Firestore
