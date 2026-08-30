@@ -1,4 +1,4 @@
-const CACHE = 'projectx-v5';
+const CACHE = 'projectx-v6';
 const ASSETS = [
   '/projectx-tracker/manifest.json',
   '/projectx-tracker/icon-192.png',

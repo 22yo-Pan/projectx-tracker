@@ -249,6 +249,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .analytics-rec{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--run);border-radius:3px;padding:16px}
 .analytics-rec-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px}
 .analytics-rec-body{font-size:13px;color:var(--text);line-height:1.9}
+
+/* PENDING STRAVA IMPORTS */
+.pending-imports{background:var(--card);border:1px solid rgba(252,76,2,.3);border-left:3px solid #fc4c02;border-radius:3px;padding:14px 16px;margin-top:20px;display:none}
+.pending-title{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#fc4c02;margin-bottom:10px}
+.pending-item{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.pending-item:last-child{border-bottom:none}
+.pending-badge{font-size:10px;font-weight:700;padding:2px 7px;background:rgba(252,76,2,.12);color:#fc4c02;border-radius:2px;flex-shrink:0}
+.pending-name{font-size:13px;font-weight:600;color:var(--text)}
+.pending-strava{font-size:11px;color:var(--muted)}
+.pending-meta{display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}
+.pending-stats{font-size:12px;color:var(--muted);white-space:nowrap}
+.pending-actions{display:flex;gap:6px;flex-shrink:0}
+.pending-import-btn{padding:4px 12px;background:rgba(252,76,2,.1);border:1px solid #fc4c02;border-radius:2px;color:#fc4c02;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:background .15s}
+.pending-import-btn:hover{background:rgba(252,76,2,.22)}
+.pending-skip-btn{padding:4px 10px;background:none;border:1px solid var(--border);border-radius:2px;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:11px;cursor:pointer}
+.pending-skip-btn:hover{border-color:var(--text);color:var(--text)}
+.ana-strava-note{font-size:11px;color:var(--muted);margin-bottom:8px;font-style:italic}
 </style>
 </head>
 <body>
@@ -273,6 +290,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="sync-bar">
   <span class="sync-label">Data Sync</span>
   <button class="sync-btn" onclick="fbSync()">☁ Sync Now</button>
+  <button class="sync-btn" id="strava-history-btn" onclick="stravaFetchHistory()">📥 Sync Strava History</button>
   <button class="sync-btn" id="analytics-toggle-btn" onclick="toggleAnalytics()">📊 Analytics</button>
   <button class="sync-btn strava" id="strava-btn" onclick="stravaAction()">🟠 Connect Strava</button>
   <span class="sync-toast" id="sync-toast"></span>
@@ -309,6 +327,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="log-section">
     <div class="log-section-title">Logged Sessions</div>
     <div id="log-list"></div>
+    <div class="pending-imports" id="pending-imports"></div>
   </div>
 </div>
 
@@ -971,6 +990,65 @@ function deleteLog(w,d){
   render();
 }
 
+// ─── Training Load Calculations ──────────────────────────────────────────────
+function parseDurToMin(dur){
+  if(!dur)return 0;
+  const p=String(dur).split(':').map(Number);
+  if(p.length===3)return p[0]*60+p[1]+p[2]/60;
+  if(p.length===2)return p[0]+p[1]/60;
+  return 0;
+}
+
+function calcDailyLoad(acts){
+  const dayLoad={};
+  for(const act of acts){
+    if(!act.date)continue;
+    let load=act.suffer||0;
+    if(!load){
+      // hrTSS proxy: dur_min × (hr/150)² × 0.55
+      const dm=act.durSec?act.durSec/60:parseDurToMin(act.dur);
+      const hr=act.hr>0?act.hr:140;
+      load=Math.round(dm*Math.pow(hr/150,2)*0.55);
+    }
+    if(!load&&act.km)load=Math.round(act.km*2);
+    dayLoad[act.date]=(dayLoad[act.date]||0)+load;
+  }
+  return dayLoad;
+}
+
+function calcATLCTL(acts,dayRange){
+  dayRange=dayRange||180;
+  const dayLoad=calcDailyLoad(acts);
+  const series=[];
+  const today=new Date();
+  const start=new Date(today);
+  start.setDate(start.getDate()-dayRange);
+  let atl=0,ctl=0;
+  const cur=new Date(start);
+  while(cur<=today){
+    const ds=cur.toISOString().slice(0,10);
+    const load=dayLoad[ds]||0;
+    atl+=(load-atl)/7;
+    ctl+=(load-ctl)/42;
+    series.push({date:ds,load,atl:+atl.toFixed(1),ctl:+ctl.toFixed(1),tsb:+(ctl-atl).toFixed(1)});
+    cur.setDate(cur.getDate()+1);
+  }
+  return series;
+}
+
+function calcEF(acts){
+  // Efficiency Factor = (1000/pace_min) / hr  (m/min per bpm — higher = better aerobic base)
+  return acts
+    .filter(a=>{const t=(a.type||'').toLowerCase();return(t.includes('run')||t.includes('trail'))&&a.hr>0&&a.pace;})
+    .map(a=>{
+      const pm=parsePaceToMin(a.pace);
+      if(!pm||pm<=0)return null;
+      return{date:a.date,ef:+((1000/pm)/a.hr).toFixed(3),hr:a.hr,pace:a.pace,km:a.km,name:a.name};
+    })
+    .filter(Boolean)
+    .sort((a,b)=>a.date.localeCompare(b.date));
+}
+
 // ─── Analytics ───────────────────────────────────────────────────────────────
 let analyticsOpen=false;
 
@@ -998,10 +1076,11 @@ function fmtMinToPace(v){
 
 function renderAnalytics(){
   const container=document.getElementById('analytics-content');
+  const stravaActs=getStravaActs();
+  const hasStrava=stravaActs.length>0;
 
-  // Collect all data across all 26 weeks
-  const allLogs=[];
-  const weekData=[];
+  // ─ Collect manual logs ─
+  const allLogs=[],weekData=[];
   for(let w=1;w<=26;w++){
     let targetKm=0,actualKm=0;
     for(let d=0;d<7;d++){
@@ -1013,59 +1092,111 @@ function renderAnalytics(){
     weekData.push({w,targetKm,actualKm});
   }
 
-  // Summary stats
-  const totalKm=allLogs.reduce((a,e)=>a+(parseFloat(e.log.km)||0),0);
-  const totalSessions=allLogs.length;
-  const runLogs=allLogs.filter(e=>e.s.type==='run');
-  const paceValsAll=runLogs.map(e=>parsePaceToMin(e.log.pace)).filter(Boolean);
-  const hrValsAll=allLogs.map(e=>parseInt(e.log.hr)).filter(v=>v>=50&&v<=220);
-  const avgPace=paceValsAll.length?paceValsAll.reduce((a,b)=>a+b,0)/paceValsAll.length:null;
-  const avgHR=hrValsAll.length?Math.round(hrValsAll.reduce((a,b)=>a+b,0)/hrValsAll.length):null;
+  // ─ Summary stats (prefer Strava when available) ─
+  const runActs=stravaActs.filter(a=>{const t=(a.type||'').toLowerCase();return t.includes('run')||t.includes('trail');});
+  const totalKm=hasStrava
+    ?+runActs.reduce((s,a)=>s+a.km,0).toFixed(1)
+    :+allLogs.reduce((s,e)=>s+(parseFloat(e.log.km)||0),0).toFixed(1);
+  const totalSessions=hasStrava?runActs.length:allLogs.length;
+  const paceVals=(hasStrava?runActs:allLogs.map(e=>({pace:e.log.pace}))).map(a=>parsePaceToMin(a.pace)).filter(Boolean);
+  const hrVals=(hasStrava?stravaActs:allLogs.map(e=>({hr:parseInt(e.log.hr)}))).map(a=>parseInt(a.hr)).filter(v=>v>=50&&v<=220);
+  const avgPace=paceVals.length?paceVals.reduce((a,b)=>a+b,0)/paceVals.length:null;
+  const avgHR=hrVals.length?Math.round(hrVals.reduce((a,b)=>a+b,0)/hrVals.length):null;
   let totalTarget=0;
   for(let w=1;w<=26;w++)for(let d=0;d<7;d++)if(getSession(w,d).type!=='rest')totalTarget++;
-  const compliance=totalTarget>0?Math.round((totalSessions/totalTarget)*100):0;
-  const longRuns=allLogs.filter(e=>e.s.name==='Long Run'&&e.log.km);
-  const bestLR=longRuns.reduce((b,e)=>(!b||parseFloat(e.log.km)>parseFloat(b.log.km))?e:b,null);
+  const loggedCount=allLogs.length;
+  const compliance=totalTarget>0?Math.round((loggedCount/totalTarget)*100):0;
+  const planStart=new Date(2026,7,24);
+  const longRunActs=hasStrava
+    ?runActs.filter(a=>new Date(a.date)>=planStart&&a.km>=12).sort((a,b)=>b.km-a.km)
+    :allLogs.filter(e=>e.s.name==='Long Run'&&e.log.km).sort((a,b)=>parseFloat(b.log.km)-parseFloat(a.log.km));
+  const bestLRkm=longRunActs.length?(hasStrava?longRunActs[0].km:parseFloat(longRunActs[0].log.km)).toFixed(1):null;
 
-  // Chart sizing
   const chartW=Math.min(720,window.innerWidth-80);
 
-  // ─ Weekly km bar chart ─
-  const lastWlogged=Math.max(...allLogs.map(e=>e.w),0);
-  const showW=Math.min(26,Math.max(10,lastWlogged+3));
+  // ─ Training Load Chart (ATL/CTL/TSB) ─
+  let tloadChart='';
+  const tloadSrc=hasStrava?stravaActs:[];
+  if(tloadSrc.length>=3){
+    const series=calcATLCTL(tloadSrc,90); // last 90 days
+    const n=series.length;
+    if(n>=2){
+      const tlPad={l:40,r:50,t:12,b:22};
+      const tlIW=chartW-tlPad.l-tlPad.r,tlIH=140-tlPad.t-tlPad.b;
+      const ctlVals=series.map(s=>s.ctl),atlVals=series.map(s=>s.atl),tsbVals=series.map(s=>s.tsb);
+      const maxLoad=Math.max(...ctlVals,...atlVals,1);
+      const minTSB=Math.min(...tsbVals,-5),maxTSB=Math.max(...tsbVals,5);
+      const cx=(i)=>tlPad.l+(i/(n-1))*tlIW;
+      const cy=(v)=>tlPad.t+tlIH-Math.max(0,Math.min(1,v/maxLoad))*tlIH;
+      // TSB area (green/red)
+      const tsbArea=series.map((s,i)=>{
+        const x=cx(i),y0=tlPad.t+tlIH*(0-minTSB)/(maxTSB-minTSB);
+        const ytsb=tlPad.t+tlIH*(1-(s.tsb-minTSB)/(maxTSB-minTSB));
+        return`<rect x="${x.toFixed(1)}" y="${Math.min(y0,ytsb).toFixed(1)}" width="${(tlIW/(n-1)+0.5).toFixed(1)}" height="${Math.abs(y0-ytsb).toFixed(1)}" fill="${s.tsb>=0?'rgba(26,138,92,.15)':'rgba(192,57,43,.12)'}"/>`;
+      }).join('');
+      const ctlPts=series.map((s,i)=>`${cx(i).toFixed(1)},${cy(s.ctl).toFixed(1)}`).join(' ');
+      const atlPts=series.map((s,i)=>`${cx(i).toFixed(1)},${cy(s.atl).toFixed(1)}`).join(' ');
+      // TSB right axis
+      const tsbAxisR=[minTSB,0,maxTSB].map(v=>{const y=tlPad.t+tlIH*(1-(v-minTSB)/(maxTSB-minTSB));return`<text x="${tlPad.l+tlIW+4}" y="${(y+4).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--muted)">${Math.round(v)}</text>`;}).join('');
+      const yGridL=[0,Math.round(maxLoad/2),Math.round(maxLoad)].map(v=>{const y=cy(v);return`<text x="${tlPad.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${Math.round(v)}</text><line x1="${tlPad.l}" y1="${y.toFixed(1)}" x2="${tlPad.l+tlIW}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="0.5"/>`;}).join('');
+      // Last TSB value
+      const lastTSB=series[n-1].tsb;
+      const tsbColor=lastTSB>5?'var(--green)':lastTSB<-10?'#c0392b':'var(--hyrox)';
+      tloadChart=`<svg width="${chartW}" height="140" style="overflow:visible;display:block">
+        ${yGridL}${tsbAxisR}${tsbArea}
+        <polyline points="${ctlPts}" fill="none" stroke="var(--run)" stroke-width="2" opacity="0.85"/>
+        <polyline points="${atlPts}" fill="none" stroke="var(--hyrox)" stroke-width="1.5" opacity="0.75" stroke-dasharray="4,3"/>
+        <text x="${tlPad.l}" y="138" font-size="9" fill="var(--run)">— CTL (Fitness)</text>
+        <text x="${tlPad.l+tlIW/2}" y="138" text-anchor="middle" font-size="9" fill="var(--hyrox)">-- ATL (Fatigue)</text>
+        <text x="${tlPad.l+tlIW}" y="138" text-anchor="end" font-size="9" fill="${tsbColor}">TSB ${lastTSB>0?'+':''}${lastTSB} (Form)</text>
+      </svg>`;
+    }
+  }
+
+  // ─ Weekly Volume (Strava actual vs plan target) ─
+  // Build per-week km from Strava when available
+  const stravaWeekKm={};
+  for(const act of runActs){
+    if(!act.date)continue;
+    const actDate=new Date(act.date);
+    if(actDate<planStart)continue;
+    const diffDays=Math.floor((actDate-planStart)/86400000);
+    const w=Math.floor(diffDays/7)+1;
+    if(w>=1&&w<=26)stravaWeekKm[w]=(stravaWeekKm[w]||0)+act.km;
+  }
+  const lastWshown=Math.max(...allLogs.map(e=>e.w),Object.keys(stravaWeekKm).map(Number).filter(Boolean),0);
+  const showW=Math.min(26,Math.max(10,lastWshown+2));
   const wSlice=weekData.slice(0,showW);
-  const maxKm=Math.max(...wSlice.map(d=>Math.max(d.targetKm,d.actualKm)),10);
+  const maxKm=Math.max(...wSlice.map(wd=>Math.max(wd.targetKm,(hasStrava?stravaWeekKm[wd.w]||0:wd.actualKm))),10);
   const bPad={l:36,r:8,t:10,b:28};
   const bIW=chartW-bPad.l-bPad.r,bIH=150-bPad.t-bPad.b;
   const barW=bIW/showW;
   const phColors={1:'var(--run)',2:'var(--hyrox)',3:'var(--green)',4:'var(--muted)'};
   const yGridVals=[0,Math.round(maxKm/2),Math.round(maxKm)];
-
   const weekBars=wSlice.map((wd,i)=>{
     const pc=phColors[getPhase(wd.w)];
+    const actualKm=hasStrava?(stravaWeekKm[wd.w]||0):wd.actualKm;
     const tH=(wd.targetKm/maxKm)*bIH;
-    const aH=(wd.actualKm/maxKm)*bIH;
+    const aH=(actualKm/maxKm)*bIH;
     const x=bPad.l+i*barW;const bw=Math.max(barW-2,1);
     const label=(i%4===0||i===showW-1)?`<text x="${(x+bw/2).toFixed(1)}" y="${bPad.t+bIH+18}" text-anchor="middle" font-size="9" fill="var(--muted)">W${wd.w}</text>`:'' ;
     return`<rect x="${x.toFixed(1)}" y="${(bPad.t+bIH-tH).toFixed(1)}" width="${bw.toFixed(1)}" height="${tH.toFixed(1)}" fill="${pc}" opacity="0.18" rx="1"/>
-${wd.actualKm>0?`<rect x="${x.toFixed(1)}" y="${(bPad.t+bIH-aH).toFixed(1)}" width="${bw.toFixed(1)}" height="${aH.toFixed(1)}" fill="${pc}" opacity="0.82" rx="1"/>`:''}
-${label}`;
+${actualKm>0?`<rect x="${x.toFixed(1)}" y="${(bPad.t+bIH-aH).toFixed(1)}" width="${bw.toFixed(1)}" height="${aH.toFixed(1)}" fill="${pc}" opacity="0.82" rx="1"/>`:''}${label}`;
   }).join('');
-  const yGrid=yGridVals.map(v=>{
-    const y=bPad.t+bIH-(v/maxKm)*bIH;
-    return`<text x="${bPad.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${v}</text><line x1="${bPad.l}" y1="${y.toFixed(1)}" x2="${bPad.l+bIW}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="0.5"/>`;
-  }).join('');
-  const weekChart=`<svg width="${chartW}" height="150" style="overflow:visible;display:block">${yGrid}${weekBars}<text x="${(bPad.l+bIW/2).toFixed(1)}" y="148" text-anchor="middle" font-size="9" fill="var(--muted)">สัปดาห์ (แถบจาง = เป้าหมาย · แถบเข้ม = จริง)</text></svg>`;
+  const yGrid=yGridVals.map(v=>{const y=bPad.t+bIH-(v/maxKm)*bIH;return`<text x="${bPad.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${v}</text><line x1="${bPad.l}" y1="${y.toFixed(1)}" x2="${bPad.l+bIW}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="0.5"/>`;}).join('');
+  const weekChart=`<svg width="${chartW}" height="150" style="overflow:visible;display:block">${yGrid}${weekBars}<text x="${(bPad.l+bIW/2).toFixed(1)}" y="148" text-anchor="middle" font-size="9" fill="var(--muted)">สัปดาห์ · แถบจาง = แผน · แถบเข้ม = จริง${hasStrava?' (จาก Strava)':''}</text></svg>`;
 
-  // ─ Pace & HR trend chart ─
-  const trendLogs=allLogs.filter(e=>e.s.type==='run'&&(parsePaceToMin(e.log.pace)||parseInt(e.log.hr)>0));
-  let trendChart='<div style="font-size:12px;color:var(--muted);padding:20px;text-align:center">ต้องการข้อมูล run อย่างน้อย 2 session เพื่อแสดง trend</div>';
-  if(trendLogs.length>=2){
-    const n=trendLogs.length;
+  // ─ Pace & HR Trend ─
+  const trendSrc=hasStrava
+    ?runActs.filter(a=>a.pace&&a.hr).sort((a,b)=>a.date.localeCompare(b.date))
+    :allLogs.filter(e=>e.s.type==='run'&&(parsePaceToMin(e.log.pace)||parseInt(e.log.hr)>0)).map(e=>({pace:e.log.pace,hr:e.log.hr,km:e.log.km}));
+  let trendChart='<div style="font-size:12px;color:var(--muted);padding:20px;text-align:center">ต้องการข้อมูล run อย่างน้อย 2 session' + (hasStrava?'':' — กด 📥 Sync Strava History เพื่อดูข้อมูลเพิ่มเติม') + '</div>';
+  if(trendSrc.length>=2){
+    const n=trendSrc.length;
     const tp={l:46,r:46,t:12,b:24};
     const tIW=chartW-tp.l-tp.r,tIH=130-tp.t-tp.b;
-    const pVals=trendLogs.map(e=>parsePaceToMin(e.log.pace));
-    const hVals=trendLogs.map(e=>{const v=parseInt(e.log.hr);return(v>=50&&v<=220)?v:null;});
+    const pVals=trendSrc.map(a=>parsePaceToMin(a.pace));
+    const hVals=trendSrc.map(a=>{const v=parseInt(a.hr);return(v>=50&&v<=220)?v:null;});
     const vp=pVals.filter(Boolean),vh=hVals.filter(Boolean);
     const pMin=vp.length?Math.min(...vp)-0.3:4,pMax=vp.length?Math.max(...vp)+0.3:8;
     const hMin=vh.length?Math.min(...vh)-5:100,hMax=vh.length?Math.max(...vh)+5:200;
@@ -1074,90 +1205,167 @@ ${label}`;
     const pp=pVals.map((v,i)=>v?px(i,v):null);
     const hp=hVals.map((v,i)=>v?hx(i,v):null);
     const polyPts=pts=>pts.filter(Boolean).map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-    const dots=(pts,col)=>pts.filter(Boolean).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3" fill="${col}"/>`).join('');
+    const dots=(pts,col,r)=>pts.filter(Boolean).map(p=>`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r||3}" fill="${col}"/>`).join('');
     const pAxisL=[pMin,(pMin+pMax)/2,pMax].map(v=>{const y=tp.t+((v-pMin)/(pMax-pMin))*tIH;return`<text x="${tp.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--run)">${fmtMinToPace(v)}</text>`;}).join('');
     const hAxisL=vh.length?[hMin,Math.round((hMin+hMax)/2),hMax].map(v=>{const y=tp.t+tIH-((v-hMin)/(hMax-hMin))*tIH;return`<text x="${tp.l+tIW+4}" y="${(y+4).toFixed(1)}" text-anchor="start" font-size="9" fill="var(--hyrox)">${Math.round(v)}</text>`;}).join(''):'';
     trendChart=`<svg width="${chartW}" height="130" style="overflow:visible;display:block">
       ${pAxisL}${hAxisL}
       ${vp.length>=2?`<polyline points="${polyPts(pp)}" fill="none" stroke="var(--run)" stroke-width="1.5" opacity="0.85"/>`:''}
       ${vh.length>=2?`<polyline points="${polyPts(hp)}" fill="none" stroke="var(--hyrox)" stroke-width="1.5" opacity="0.85"/>`:''}
-      ${dots(pp,'var(--run)')}${dots(hp,'var(--hyrox)')}
+      ${dots(pp,'var(--run)',hasStrava?2:3)}${dots(hp,'var(--hyrox)',hasStrava?2:3)}
       <text x="${tp.l}" y="128" font-size="9" fill="var(--run)">— Pace (min/km)</text>
       <text x="${tp.l+tIW}" y="128" text-anchor="end" font-size="9" fill="var(--hyrox)">— HR (bpm) —</text>
     </svg>`;
   }
 
+  // ─ Efficiency Factor trend ─
+  let efChart='';
+  if(hasStrava){
+    const efData=calcEF(stravaActs.filter(a=>new Date(a.date)>=new Date(planStart.getTime()-180*86400000)));
+    if(efData.length>=3){
+      const n=efData.length;
+      const ep={l:44,r:8,t:12,b:22};
+      const eIW=chartW-ep.l-ep.r,eIH=110-ep.t-ep.b;
+      const efVals=efData.map(e=>e.ef);
+      const efMin=Math.min(...efVals)*0.96,efMax=Math.max(...efVals)*1.04;
+      const ex=(i)=>ep.l+(i/(n-1))*eIW;
+      const ey=(v)=>ep.t+eIH-((v-efMin)/(efMax-efMin))*eIH;
+      const efPts=efData.map((e,i)=>`${ex(i).toFixed(1)},${ey(e.ef).toFixed(1)}`).join(' ');
+      const efDots=efData.map((e,i)=>`<circle cx="${ex(i).toFixed(1)}" cy="${ey(e.ef).toFixed(1)}" r="2.5" fill="var(--green)"/>`).join('');
+      // Trend line (linear regression)
+      const xs=efData.map((_,i)=>i),ys=efVals;
+      const xm=xs.reduce((a,b)=>a+b,0)/n,ym=ys.reduce((a,b)=>a+b,0)/n;
+      const slope=xs.reduce((a,x,i)=>a+(x-xm)*(ys[i]-ym),0)/xs.reduce((a,x)=>a+(x-xm)**2,0);
+      const intercept=ym-slope*xm;
+      const x0=ex(0),y0=ey(intercept),x1=ex(n-1),y1=ey(slope*(n-1)+intercept);
+      const improving=slope>0;
+      const efAxisL=[efMin,(efMin+efMax)/2,efMax].map(v=>{const y=ey(v);return`<text x="${ep.l-4}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--green)">${v.toFixed(2)}</text>`;}).join('');
+      efChart=`<div class="analytics-chart-box">
+        <div class="analytics-chart-title">Aerobic Efficiency Factor (EF) — ${improving?'📈 กำลังดีขึ้น ✓':'📉 ยังต้องพัฒนา'}</div>
+        <div class="ana-strava-note">EF = speed (m/min) ÷ HR · ค่าสูงขึ้น = aerobic base แข็งแกร่งขึ้น</div>
+        <div style="overflow-x:auto"><svg width="${chartW}" height="110" style="overflow:visible;display:block">
+          ${efAxisL}
+          <polyline points="${efPts}" fill="none" stroke="var(--green)" stroke-width="1.5" opacity="0.8"/>
+          <line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="${improving?'var(--green)':'var(--hyrox)'}" stroke-width="1" stroke-dasharray="5,3" opacity="0.6"/>
+          ${efDots}
+          <text x="${ep.l}" y="108" font-size="9" fill="var(--green)">Efficiency Factor — ${improving?'Improving 🟢':'Declining 🔴'}</text>
+        </svg></div>
+      </div>`;
+    }
+  }
+
   // ─ Recommendation ─
-  const rec=getRecommendation(weekData,allLogs);
+  const atcl=hasStrava?calcATLCTL(stravaActs,90):null;
+  const currentTSB=atcl&&atcl.length?atcl[atcl.length-1].tsb:null;
+  const rec=getRecommendation(weekData,allLogs,stravaActs,currentTSB);
 
   container.innerHTML=`
+    ${hasStrava?'':'<div style="text-align:center;padding:10px 0 4px;font-size:12px;color:var(--muted)">💡 กด <b>📥 Sync Strava History</b> เพื่อดูสถิติ Training Load, Efficiency Factor และข้อมูลเชิงลึกเพิ่มเติม</div>'}
     <div class="analytics-cards">
-      <div class="ana-card"><div class="ana-label">Total Distance</div><div class="ana-val">${totalKm.toFixed(1)}<span> km</span></div></div>
-      <div class="ana-card"><div class="ana-label">Sessions Logged</div><div class="ana-val">${totalSessions}<span> / ${totalTarget}</span></div></div>
-      <div class="ana-card"><div class="ana-label">Avg Pace (Run)</div><div class="ana-val">${avgPace?fmtMinToPace(avgPace):'—'}<span>${avgPace?' /km':''}</span></div></div>
+      <div class="ana-card"><div class="ana-label">Total Distance${hasStrava?' (Strava)':''}</div><div class="ana-val">${totalKm}<span> km</span></div></div>
+      <div class="ana-card"><div class="ana-label">Sessions${hasStrava?' (Strava)':' Logged'}</div><div class="ana-val">${totalSessions}<span>${hasStrava?' runs':' / '+totalTarget}</span></div></div>
+      <div class="ana-card"><div class="ana-label">Avg Pace</div><div class="ana-val">${avgPace?fmtMinToPace(avgPace):'—'}<span>${avgPace?' /km':''}</span></div></div>
       <div class="ana-card"><div class="ana-label">Avg Heart Rate</div><div class="ana-val">${avgHR||'—'}<span>${avgHR?' bpm':''}</span></div></div>
-      <div class="ana-card"><div class="ana-label">Compliance</div><div class="ana-val">${compliance}<span>%</span></div></div>
-      <div class="ana-card"><div class="ana-label">Best Long Run</div><div class="ana-val">${bestLR?parseFloat(bestLR.log.km).toFixed(1):'—'}<span>${bestLR?' km':''}</span></div></div>
+      <div class="ana-card"><div class="ana-label">Plan Compliance</div><div class="ana-val">${compliance}<span>%</span></div></div>
+      <div class="ana-card"><div class="ana-label">Best Long Run</div><div class="ana-val">${bestLRkm||'—'}<span>${bestLRkm?' km':''}</span></div></div>
+      ${currentTSB!==null?`<div class="ana-card"><div class="ana-label">Form (TSB)</div><div class="ana-val" style="color:${currentTSB>5?'var(--green)':currentTSB<-10?'#c0392b':'var(--text)'}">${currentTSB>0?'+':''}${currentTSB}<span> pts</span></div></div>`:''}
     </div>
+    ${tloadChart?`<div class="analytics-chart-box">
+      <div class="analytics-chart-title">Training Load — CTL / ATL / TSB (90 วันล่าสุด)</div>
+      <div class="ana-strava-note">CTL = Fitness (42-day avg) · ATL = Fatigue (7-day avg) · TSB = Form (CTL − ATL) · 🟢 Fresh / 🔴 Tired</div>
+      <div style="overflow-x:auto">${tloadChart}</div>
+    </div>`:''}
     <div class="analytics-chart-box">
       <div class="analytics-chart-title">Weekly Training Volume (km)</div>
       <div style="overflow-x:auto">${weekChart}</div>
     </div>
     <div class="analytics-chart-box">
-      <div class="analytics-chart-title">Pace & HR Trend — Run Sessions</div>
+      <div class="analytics-chart-title">Pace & HR Trend${hasStrava?' (จาก Strava)':' — Run Sessions'}</div>
       <div style="overflow-x:auto">${trendChart}</div>
     </div>
+    ${efChart}
     <div class="analytics-rec">
       <div class="analytics-rec-title">🎯 วิเคราะห์และแนะนำสัปดาห์ถัดไป</div>
       <div class="analytics-rec-body">${rec}</div>
     </div>`;
 }
 
-function getRecommendation(weekData,allLogs){
-  if(!allLogs.length)return'ยังไม่มีข้อมูล — เริ่ม log session แรกได้เลย!';
-  const lastW=Math.max(...allLogs.map(e=>e.w));
-  const nextW=Math.min(26,lastW+1);
-  const lwd=weekData[lastW-1];
+function getRecommendation(weekData,allLogs,stravaActs,currentTSB){
+  stravaActs=stravaActs||[];currentTSB=currentTSB||null;
+  const hasStrava=stravaActs.length>0;
+  if(!allLogs.length&&!hasStrava)return'ยังไม่มีข้อมูล — เริ่ม log session แรกได้เลย!<br><br>💡 กด <b>📥 Sync Strava History</b> เพื่อดึงข้อมูลย้อนหลัง 6 เดือนและรับการวิเคราะห์ที่แม่นยำขึ้น';
+
+  const lines=[];
+  const today=new Date();
+  const planStart=new Date(2026,7,24);
+  const diffDays=Math.max(0,Math.floor((today-planStart)/86400000));
+  const currentW=Math.min(26,Math.floor(diffDays/7)+1);
+  const nextW=Math.min(26,currentW+1);
   const nwd=weekData[nextW-1];
-  const lastLogs=allLogs.filter(e=>e.w===lastW);
-  const rpes=lastLogs.map(e=>e.log.rpe).filter(Boolean);
-  const avgRPE=rpes.length?rpes.reduce((a,b)=>a+b,0)/rpes.length:null;
-  const volRatio=lwd&&lwd.targetKm>0?lwd.actualKm/lwd.targetKm:null;
-  const recent3=allLogs.filter(e=>e.w>=lastW-2);
-  const r3rpes=recent3.map(e=>e.log.rpe).filter(Boolean);
-  const avg3RPE=r3rpes.length?r3rpes.reduce((a,b)=>a+b,0)/r3rpes.length:null;
   const ph=getPhase(nextW);
   const phN={1:'Base & Technique',2:'Compromised Running',3:'Race Simulation',4:'Taper'};
-  const lines=[];
 
-  // Volume analysis
-  if(volRatio!==null){
-    if(volRatio<0.7)lines.push(`⚠️ <b>Volume สัปดาห์ที่แล้ว</b> ${lwd.actualKm.toFixed(1)} km — ต่ำกว่าแผน ${Math.round((1-volRatio)*100)}% ควรเพิ่ม consistency ในสัปดาห์หน้า`);
-    else if(volRatio>=1.0)lines.push(`✅ <b>Volume สัปดาห์ที่แล้ว</b> ${lwd.actualKm.toFixed(1)} km — ทำได้ตามแผน ดีมาก`);
-    else lines.push(`📊 <b>Volume สัปดาห์ที่แล้ว</b> ${lwd.actualKm.toFixed(1)} km (${Math.round(volRatio*100)}% ของแผน) — ใกล้เคียงแผนดี`);
+  // ─ TSB / Training Form (Strava-based) ─
+  if(currentTSB!==null){
+    if(currentTSB>15)lines.push(`🟢 <b>Form (TSB) +${currentTSB}</b> — ร่างกายสด พร้อมรับ load สูง สัปดาห์หน้าสามารถ push intensity ได้`);
+    else if(currentTSB>5)lines.push(`🟢 <b>Form (TSB) +${currentTSB}</b> — ร่างกายดี ปฏิบัติตามแผนได้เต็มที่`);
+    else if(currentTSB>=-5)lines.push(`🟡 <b>Form (TSB) ${currentTSB}</b> — ร่างกายสมดุล ระหว่าง fit และ fatigued ปฏิบัติตามแผนได้`);
+    else if(currentTSB>=-15)lines.push(`🟠 <b>Form (TSB) ${currentTSB}</b> — ร่างกายเหนื่อยสะสม ควรเน้น easy session และนอนหลับให้พอ`);
+    else lines.push(`🔴 <b>Form (TSB) ${currentTSB}</b> — Fatigue สูงมาก ควรลด intensity 20–30% สัปดาห์นี้ หรือพิจารณา deload`);
   }
 
-  // RPE analysis
+  // ─ RPE from manual logs (last week) ─
+  const lastWlogs=allLogs.filter(e=>e.w===currentW);
+  const rpes=lastWlogs.map(e=>e.log.rpe).filter(Boolean);
+  const avgRPE=rpes.length?+(rpes.reduce((a,b)=>a+b,0)/rpes.length).toFixed(1):null;
   if(avgRPE!==null){
-    if(avgRPE>8)lines.push(`🔴 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> สูงมาก — สัปดาห์หน้าควรลด intensity ลง 10–15% เน้น easy run มากขึ้น`);
-    else if(avgRPE>7)lines.push(`🟠 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> ค่อนข้างสูง — รักษา volume ตามแผน อย่าเพิ่ม intensity`);
-    else if(avgRPE<5)lines.push(`🟢 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> ต่ำ — ร่างกายพร้อม ปฏิบัติตามแผนได้เต็มที่`);
-    else lines.push(`🟢 <b>RPE เฉลี่ย ${avgRPE.toFixed(1)}/10</b> อยู่ในช่วงเหมาะสม — ปฏิบัติตามแผนได้เลย`);
+    if(avgRPE>8)lines.push(`🔴 <b>RPE สัปดาห์นี้ ${avgRPE}/10</b> — รู้สึกหนักมาก สัปดาห์หน้าลด intensity ลง`);
+    else if(avgRPE>7)lines.push(`🟠 <b>RPE สัปดาห์นี้ ${avgRPE}/10</b> — ค่อนข้างหนัก อย่าเพิ่ม load ในสัปดาห์หน้า`);
+    else if(avgRPE<=5)lines.push(`🟢 <b>RPE สัปดาห์นี้ ${avgRPE}/10</b> — รู้สึกสบาย ร่างกายพร้อม`);
+    else lines.push(`🟢 <b>RPE สัปดาห์นี้ ${avgRPE}/10</b> — อยู่ในช่วงเหมาะสม`);
   }
 
-  // 3-week overload check
-  if(avg3RPE!==null&&avg3RPE>7.5&&recent3.length>=8)lines.push(`⚠️ <b>RPE เฉลี่ย 3 สัปดาห์ ${avg3RPE.toFixed(1)}/10</b> สะสมสูง — พิจารณา deload สัปดาห์นี้ ลด volume 30–40%`);
+  // ─ Volume analysis (Strava or manual) ─
+  const lwd=weekData[currentW-1];
+  let actualVol=0;
+  if(hasStrava){
+    const pStart=new Date(planStart.getTime()+(currentW-1)*7*86400000);
+    const pEnd=new Date(pStart.getTime()+7*86400000);
+    actualVol=stravaActs.filter(a=>{const t=(a.type||'').toLowerCase();const d=new Date(a.date);return(t.includes('run')||t.includes('trail'))&&d>=pStart&&d<pEnd;}).reduce((s,a)=>s+a.km,0);
+  } else {
+    actualVol=lwd?lwd.actualKm:0;
+  }
+  if(lwd&&lwd.targetKm>0&&actualVol>0){
+    const ratio=actualVol/lwd.targetKm;
+    if(ratio<0.7)lines.push(`⚠️ <b>Volume สัปดาห์นี้</b> ${actualVol.toFixed(1)} km — ต่ำกว่าแผน ${Math.round((1-ratio)*100)}% ลอง maintain ให้ใกล้เคียง ${lwd.targetKm} km สัปดาห์หน้า`);
+    else if(ratio>=1.0)lines.push(`✅ <b>Volume สัปดาห์นี้</b> ${actualVol.toFixed(1)} km — ทำได้ครบแผน ดีมาก`);
+    else lines.push(`📊 <b>Volume สัปดาห์นี้</b> ${actualVol.toFixed(1)} km (${Math.round(ratio*100)}% ของแผน ${lwd.targetKm} km)`);
+  }
 
-  // Next week plan
+  // ─ Efficiency trend (Strava) ─
+  if(hasStrava){
+    const efData=calcEF(stravaActs).slice(-10);
+    if(efData.length>=5){
+      const firstHalf=efData.slice(0,Math.floor(efData.length/2)).map(e=>e.ef);
+      const secHalf=efData.slice(Math.floor(efData.length/2)).map(e=>e.ef);
+      const ef1=firstHalf.reduce((a,b)=>a+b,0)/firstHalf.length;
+      const ef2=secHalf.reduce((a,b)=>a+b,0)/secHalf.length;
+      const delta=((ef2-ef1)/ef1*100).toFixed(1);
+      if(ef2>ef1)lines.push(`📈 <b>Aerobic Efficiency</b> ดีขึ้น +${delta}% ใน 10 session ล่าสุด — aerobic base กำลังพัฒนาดี`);
+      else lines.push(`📉 <b>Aerobic Efficiency</b> ลดลง ${delta}% — อาจเป็นสัญญาณ fatigue สะสม หรือต้องเพิ่ม easy zone 2`);
+    }
+  }
+
+  // ─ Next week plan ─
   const ntKm=nwd?nwd.targetKm:0;
-  if(lastW<26)lines.push(`📅 <b>สัปดาห์ ${nextW} — ${phN[ph]}</b><br>เป้าหมาย ${ntKm} km · ${ph===1?'เน้น Zone 2 HR <145 · สร้างฐานแอโรบิก':ph===2?'Brick sessions + compromised run หลัง stations':ph===3?'Race simulation ครบ 8 stations · race pace work':'ลด volume รักษาความเร็ว · พักให้เต็มที่ก่อนแข่ง'}`);
+  if(currentW<26)lines.push(`📅 <b>สัปดาห์ ${nextW} — ${phN[ph]}</b><br>เป้าหมาย ${ntKm} km · ${ph===1?'เน้น Zone 2 HR <145 · สร้างฐานแอโรบิก':ph===2?'Brick sessions + compromised run หลัง stations':ph===3?'Race simulation ครบ 8 stations · race pace work':'ลด volume รักษาความเร็ว · พักให้เต็มที่ก่อนแข่ง'}`);
   else lines.push(`🏁 <b>จบ 26 สัปดาห์แล้ว!</b> ถึงเวลาแข่งขัน — ไปโชว์ผลงานได้เลย!`);
 
-  // Phase tip
-  if(ph===1)lines.push(`💡 <b>Tip:</b> ทุก easy run ให้ HR ไม่เกิน 145 bpm ถ้า HR เกินให้ช้าลงหรือเดินก่อน — pace ไม่สำคัญ`);
-  else if(ph===2)lines.push(`💡 <b>Tip:</b> Brick training — วิ่งทันทีหลัง stations โดยไม่พัก เพื่อฝึก legs ที่ fatigued สำหรับ Hyrox จริง`);
-  else if(ph===3)lines.push(`💡 <b>Tip:</b> Race sim ให้ทำ stations ตามลำดับ Hyrox จริงทุกครั้ง (SkiErg → Sled Push → … → Burpee Broad Jump) ฝึก mental game`);
-  else lines.push(`💡 <b>Tip:</b> อย่า overtrain ช่วง Taper — ร่างกายกำลัง supercompensate ความรู้สึก "ง่าย" คือสัญญาณที่ดี`);
+  // ─ Phase-specific tip ─
+  if(ph===1)lines.push(`💡 <b>Tip:</b> easy run ทุก session HR ต้องไม่เกิน 145 bpm — ถ้าเกินให้เดินก่อน pace ไม่สำคัญเท่า HR`);
+  else if(ph===2)lines.push(`💡 <b>Tip:</b> Brick — วิ่งทันทีหลัง stations ไม่พัก เพื่อฝึก legs ที่ fatigued ตรงกับ Hyrox จริง`);
+  else if(ph===3)lines.push(`💡 <b>Tip:</b> Race sim ทำ stations ตามลำดับ Hyrox จริงทุกครั้ง ฝึก mental game และ pacing ระหว่าง stations`);
+  else lines.push(`💡 <b>Tip:</b> Taper ช่วงนี้ร่างกายกำลัง supercompensate — อย่า overtrain ความรู้สึก "ง่าย" คือสัญญาณดี`);
 
   return lines.join('<br><br>');
 }
@@ -1289,6 +1497,128 @@ function fmtSec(s){
   return `${m}:${String(sec).padStart(2,'0')}`;
 }
 
+// ─── Strava History Sync ─────────────────────────────────────────────────────
+async function stravaFetchHistory(){
+  const btn=document.getElementById('strava-history-btn');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Syncing...';}
+  const token=await stravaGetToken();
+  if(!token){
+    showSyncToast('❌ กรุณา Connect Strava ก่อน');
+    if(btn){btn.disabled=false;btn.textContent='📥 Sync Strava History';}
+    return;
+  }
+  const sixMoAgo=Math.floor(Date.now()/1000)-(180*86400);
+  let page=1,allActs=[];
+  try{
+    while(true){
+      const r=await fetch(`https://www.strava.com/api/v3/athlete/activities?after=${sixMoAgo}&per_page=100&page=${page}`,{headers:{'Authorization':'Bearer '+token}});
+      const acts=await r.json();
+      if(!Array.isArray(acts)||!acts.length)break;
+      allActs=allActs.concat(acts);
+      if(acts.length<100)break;
+      page++;
+    }
+    const compressed=allActs.map(a=>({
+      id:a.id,
+      name:a.name||'',
+      type:a.sport_type||a.type||'Run',
+      date:(a.start_date_local||'').slice(0,10),
+      km:+((a.distance||0)/1000).toFixed(2),
+      pace:a.average_speed>0?fmtPace(a.average_speed):'',
+      hr:a.average_heartrate?Math.round(a.average_heartrate):0,
+      hrMax:a.max_heartrate||0,
+      dur:fmtSec(a.moving_time||0),
+      durSec:a.moving_time||0,
+      cal:Math.round(a.calories||0),
+      suffer:Math.round(a.suffer_score||0),
+      elev:Math.round(a.total_elevation_gain||0),
+      cadence:a.average_cadence?Math.round(a.average_cadence*2):0
+    }));
+    ss('px_strava_acts',compressed);
+    showSyncToast(`✅ ดึงข้อมูล ${compressed.length} กิจกรรมจาก Strava`);
+    renderPendingImports();
+    if(analyticsOpen)renderAnalytics();
+  }catch(e){
+    showSyncToast('❌ ดึงข้อมูล Strava ไม่ได้: '+e.message);
+  }
+  if(btn){btn.disabled=false;btn.textContent='📥 Sync Strava History';}
+}
+
+function getStravaActs(){return sg('px_strava_acts')||[]}
+
+function stravaAutoMatchActs(){
+  const acts=getStravaActs();
+  const planStart=new Date(2026,7,24); // Aug 24, 2026
+  const results=[];
+  for(const act of acts){
+    const t=(act.type||'').toLowerCase();
+    if(!t.includes('run')&&!t.includes('trail')&&!t.includes('walk'))continue;
+    if(!act.date)continue;
+    const actDate=new Date(act.date);
+    if(actDate<planStart)continue;
+    const diffDays=Math.floor((actDate-planStart)/86400000);
+    if(diffDays<0)continue;
+    const w=Math.floor(diffDays/7)+1;
+    const d=diffDays%7;
+    if(w<1||w>26)continue;
+    const session=getSession(w,d);
+    if(session.type==='rest')continue;
+    if(sg(lk(w,d)))continue; // already logged manually
+    if(sg('px_skip_'+lk(w,d)))continue; // user skipped
+    results.push({act,w,d,session});
+  }
+  // Sort by most recent week first
+  return results.sort((a,b)=>b.w-a.w||b.d-a.d);
+}
+
+function renderPendingImports(){
+  const container=document.getElementById('pending-imports');
+  if(!container)return;
+  const matches=stravaAutoMatchActs();
+  if(!matches.length){container.innerHTML='';container.style.display='none';return;}
+  container.style.display='block';
+  container.innerHTML=`<div class="pending-title">🟠 Strava — รอ Import (${matches.length} session)</div>`+
+    matches.slice(0,8).map(({act,w,d,session})=>{
+      const payload=JSON.stringify({w,d,actId:act.id}).replace(/"/g,'&quot;');
+      return`<div class="pending-item">
+        <div class="pending-meta">
+          <span class="pending-badge">W${w} ${SHORT[d]}</span>
+          <span class="pending-name">${session.name}</span>
+          <span class="pending-strava">"${act.name}"</span>
+        </div>
+        <div class="pending-stats">${act.km} km${act.pace?' · '+act.pace+'/km':''}${act.hr?' · HR '+act.hr:''}</div>
+        <div class="pending-actions">
+          <button class="pending-import-btn" onclick="stravaImportAuto('${payload}')">⬆ Import</button>
+          <button class="pending-skip-btn" onclick="pendingSkip(${w},${d})">Skip</button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+function stravaImportAuto(payloadStr){
+  const {w,d,actId}=JSON.parse(payloadStr.replace(/&quot;/g,'"'));
+  const acts=getStravaActs();
+  const act=acts.find(a=>a.id===actId);
+  if(!act){showSyncToast('❌ ไม่พบข้อมูล activity');return;}
+  const data={
+    km:act.km,pace:act.pace,hr:act.hr||'',
+    dur:act.dur,cal:act.cal||'',rpe:null,
+    notes:`Auto-import จาก Strava: "${act.name}"`,
+    imgData:null,saved:new Date().toISOString()
+  };
+  const k=lk(w,d);
+  ss(k,data);
+  if(typeof fbWrite==='function')fbWrite(k,data);
+  showSyncToast(`✅ Import W${w} ${SHORT[d]} — ${act.name}`);
+  renderPendingImports();
+  render();
+}
+
+function pendingSkip(w,d){
+  ss('px_skip_'+lk(w,d),true);
+  renderPendingImports();
+}
+
 // ─── Firestore REST API (no SDK needed) ──────────────────────────────────────
 const FB_PROJECT='projectx-tracker';
 const FB_KEY='AIzaSyAk7WgWYEhWsAILQiXzyjofhFXCKJ9GhKQ';
@@ -1363,6 +1693,7 @@ updateCD(); setInterval(updateCD,60000);
 fbSync().catch(()=>render());
 stravaHandleCallback();
 stravaUpdateUI();
+renderPendingImports();
 
 // Service Worker registration
 if('serviceWorker' in navigator){
